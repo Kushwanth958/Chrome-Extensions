@@ -28,7 +28,7 @@
 // ── Backend URL ───────────────────────────────────────────────
 // Point this at your deployed Vercel project URL.
 // During local development you can use: "http://localhost:3000/api/generate"
-const BACKEND_URL = "https://chromeextensions.vercel.app/api/generate";
+const BACKEND_URL = "https://chromeextensions.vercel.app/Resume/api/generate";
 
 // ── Storage key ───────────────────────────────────────────────
 // Only the resume is stored locally now. No API key on the client.
