@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--
+    popup.html – ResumeAI v2
+    Two screens:
+      #screen-onboarding  – first-time users: upload resume only (no API key)
+      #screen-main        – returning users: auto-scraped job + generate + preview
+    All logic in popup.js (ES module). Styles in popup.css.
+  -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResumeAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+
+  <!-- ── Header (always visible) ──────────────────────────── -->
+  <header>
+    <div class="logo">
+      <span class="logo-wordmark">Resume<em>AI</em></span>
+      <span class="logo-badge">Claude</span>
+    </div>
+    <div class="status-dot" id="statusDot"></div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════
+       SCREEN 1 — ONBOARDING
+       Shown once on first use. User uploads their base resume
+       as a text file. No API key required — key lives on Vercel.
+  ══════════════════════════════════════════════════════════════ -->
+  <section class="screen" id="screen-onboarding">
+
+    <div class="onboarding-headline">
+      <h2>Build your <em>perfect</em><br />resume in seconds.</h2>
+      <p>Upload your base resume once. ResumeAI tailors it to every job you visit — powered by Claude.</p>
+    </div>
+
+    <!-- Drag-and-drop / click-to-upload area -->
+    <div class="drop-zone" id="dropZone">
+      <div class="drop-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <div class="drop-text">
+        <strong>Drop your resume here</strong>
+        <span>PDF · DOCX · TXT — use .txt for best results</span>
+      </div>
+      <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt" hidden />
+    </div>
+
+    <!-- Shown after a file is picked -->
+    <div class="file-chosen" id="fileChosen" hidden>
+      <span class="file-icon">📄</span>
+      <span class="file-name" id="fileName"></span>
+      <button class="btn-clear" id="btnClearFile" title="Remove">✕</button>
+    </div>
+
+    <!-- Save & proceed — no API key field in v2 -->
+    <button class="btn-primary" id="btnSaveSetup">Save &amp; Continue →</button>
+
+    <p class="error-msg" id="setupError" hidden></p>
+
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       SCREEN 2 — MAIN
+       Shown to returning users. On open, popup.js immediately
+       injects content.js to auto-scrape the job description.
+  ══════════════════════════════════════════════════════════════ -->
+  <section class="screen" id="screen-main" hidden>
+
+    <!-- Job page detection strip -->
+    <div class="job-strip">
+      <span class="job-strip-label">Detected page</span>
+      <span class="job-strip-url" id="jobUrl">—</span>
+    </div>
+
+    <!-- Job description extraction status -->
+    <div class="extract-status" id="extractStatus">
+      <span class="extract-icon" id="extractIcon">⏳</span>
+      <span class="extract-text" id="extractText">Reading job description…</span>
+    </div>
+
+    <!-- Generate button -->
+    <button class="btn-generate" id="btnGenerate" disabled>
+      <span class="gen-idle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+        Tailor Resume to This Job
+      </span>
+      <span class="gen-loading" hidden>
+        <span class="spinner"></span>
+        Claude is rewriting…
+      </span>
+    </button>
+
+    <!-- Error banner -->
+    <div class="error-banner" id="errorBanner" hidden>
+      <span id="errorMsg"></span>
+    </div>
+
+    <!-- Scrollable tailored resume preview -->
+    <div class="preview-wrap">
+      <div class="preview-header">
+        <span class="preview-label">Tailored Resume</span>
+        <span class="preview-hint" id="previewHint">Ready when you are</span>
+      </div>
+      <div class="preview-panel" id="previewPanel">
+        <div class="preview-placeholder">
+          <p>Your Claude-tailored resume will appear here.</p>
+          <p>Navigate to a job posting, then click Tailor.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom action bar -->
+    <div class="bottom-bar">
+      <button class="btn-action" id="btnCopy" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+        </svg>
+        Copy
+      </button>
+      <button class="btn-action" id="btnDownload" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download
+      </button>
+      <button class="btn-reset" id="btnReset" title="Clear saved resume">Reset</button>
+    </div>
+
+  </section>
+
+  <!-- Toast notification -->
+  <div class="toast" id="toast"></div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
