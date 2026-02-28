@@ -69,15 +69,14 @@ export default async function handler(req, res) {
   // Browsers and extensions send an OPTIONS request before POST
   // when the origins differ. We respond 204 (No Content) to allow it.
   if (req.method === "OPTIONS") {
-    return res.status(204).set(CORS_HEADERS).end();
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(204).end();
   }
 
   // ── Only accept POST ─────────────────────────────────────────
   if (req.method !== "POST") {
-    return res
-      .status(405)
-      .set(CORS_HEADERS)
-      .json({ error: "Method not allowed. Use POST." });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
   // ── Parse and validate the request body ─────────────────────
@@ -86,27 +85,21 @@ export default async function handler(req, res) {
   const { resume, jobDescription } = req.body ?? {};
 
   if (!resume || typeof resume !== "string" || resume.trim().length < 50) {
-    return res
-      .status(400)
-      .set(CORS_HEADERS)
-      .json({ error: "Missing or too-short `resume` field in request body." });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(400).json({ error: "Missing or too-short `resume` field in request body." });
   }
 
   if (!jobDescription || typeof jobDescription !== "string" || jobDescription.trim().length < 50) {
-    return res
-      .status(400)
-      .set(CORS_HEADERS)
-      .json({ error: "Missing or too-short `jobDescription` field in request body." });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(400).json({ error: "Missing or too-short `jobDescription` field in request body." });
   }
 
   // ── Verify the server-side API key is present ────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     console.error("[ResumeAI] ANTHROPIC_API_KEY environment variable is not set.");
-    return res
-      .status(500)
-      .set(CORS_HEADERS)
-      .json({ error: "Server configuration error. API key not set." });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(500).json({ error: "Server configuration error. API key not set." });
   }
 
   // ── Build the Claude prompt ──────────────────────────────────
@@ -171,10 +164,8 @@ STRICT RULES — follow every one without exception:
     });
   } catch (networkErr) {
     console.error("[ResumeAI] Network error calling Anthropic:", networkErr);
-    return res
-      .status(502)
-      .set(CORS_HEADERS)
-      .json({ error: "Could not reach the Anthropic API. Please try again." });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(502).json({ error: "Could not reach the Anthropic API. Please try again." });
   }
 
   // ── Handle non-2xx from Anthropic ───────────────────────────
@@ -182,10 +173,8 @@ STRICT RULES — follow every one without exception:
     const errorBody = await claudeResponse.json().catch(() => ({}));
     const detail    = errorBody?.error?.message || `HTTP ${claudeResponse.status}`;
     console.error("[ResumeAI] Anthropic API error:", detail);
-    return res
-      .status(502)
-      .set(CORS_HEADERS)
-      .json({ error: `Claude API error: ${detail}` });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(502).json({ error: `Claude API error: ${detail}` });
   }
 
   // ── Extract the generated text ───────────────────────────────
@@ -196,10 +185,8 @@ STRICT RULES — follow every one without exception:
 
   if (!tailoredText) {
     console.error("[ResumeAI] Anthropic returned empty content:", claudeData);
-    return res
-      .status(502)
-      .set(CORS_HEADERS)
-      .json({ error: "Claude returned an empty response. Please try again." });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(502).json({ error: "Claude returned an empty response. Please try again." });
   }
 
   // ── ATS scoring call (second Claude request) ─────────────────
@@ -246,20 +233,16 @@ Rules:
     });
   } catch (networkErr) {
     console.error("[ResumeAI] Network error calling Anthropic (ATS):", networkErr);
-    return res
-      .status(502)
-      .set(CORS_HEADERS)
-      .json({ error: "Could not reach the Anthropic API for ATS scoring. Please try again." });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(502).json({ error: "Could not reach the Anthropic API for ATS scoring. Please try again." });
   }
 
   if (!atsResponse.ok) {
     const errorBody = await atsResponse.json().catch(() => ({}));
     const detail    = errorBody?.error?.message || `HTTP ${atsResponse.status}`;
     console.error("[ResumeAI] Anthropic API ATS error:", detail);
-    return res
-      .status(502)
-      .set(CORS_HEADERS)
-      .json({ error: `Claude API ATS error: ${detail}` });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(502).json({ error: `Claude API ATS error: ${detail}` });
   }
 
   const atsData = await atsResponse.json();
@@ -268,10 +251,8 @@ Rules:
 
   if (!atsObj || typeof atsObj !== "object") {
     console.error("[ResumeAI] ATS scoring returned non-JSON:", { atsText, atsData });
-    return res
-      .status(502)
-      .set(CORS_HEADERS)
-      .json({ error: "Claude returned an invalid ATS scoring response. Please try again." });
+    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    return res.status(502).json({ error: "Claude returned an invalid ATS scoring response. Please try again." });
   }
 
   const atsScore = {
@@ -282,8 +263,6 @@ Rules:
   };
 
   // ── Return tailored resume + ATS result ───────────────────────
-  return res
-    .status(200)
-    .set({ ...CORS_HEADERS, "Content-Type": "application/json" })
-    .json({ tailoredResume: tailoredText, atsScore });
+  Object.entries({ ...CORS_HEADERS, "Content-Type": "application/json" }).forEach(([k, v]) => res.setHeader(k, v));
+  return res.status(200).json({ tailoredResume: tailoredText, atsScore });
 }
