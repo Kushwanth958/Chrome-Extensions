@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "ResumeAI",
+  "version": "1.0.0",
+  "description": "AI-powered resume tailoring. Reads the job description on any page and rewrites your resume to match it.",
+
+  // ── Permissions ─────────────────────────────────────────────────────────────
+  // "activeTab"      → lets the popup ask the current tab to run content.js
+  // "scripting"      → required to programmatically inject content.js via executeScript
+  // "storage"        → lets us persist the user's base resume & API key in chrome.storage.local
+  "permissions": ["activeTab", "scripting", "storage"],
+
+  // ── Popup UI ─────────────────────────────────────────────────────────────────
+  // Shown when the user clicks the extension icon in the toolbar.
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "ResumeAI – Tailor your resume"
+  },
+
+  // ── Content Script Declaration ───────────────────────────────────────────────
+  // We do NOT auto-inject on every page. Instead we inject on-demand from popup.js
+  // using chrome.scripting.executeScript so it only runs when the user opens the popup.
+  // (No "content_scripts" key needed for on-demand injection.)
+
+  // ── Icons ────────────────────────────────────────────────────────────────────
+  // Place icon files in an /icons folder. 16px for the toolbar, 48 & 128 for the store.
+  // "icons": {
+  //   "16":  "icons/icon16.png",
+  //   "48":  "icons/icon48.png",
+  //   "128": "icons/icon128.png"
+  // },
+
+  // ── Host Permissions ─────────────────────────────────────────────────────────
+  // Required so the popup can call the OpenAI API directly from extension context.
+  "host_permissions": [
+    "https://api.openai.com/*"
+  ]
+}

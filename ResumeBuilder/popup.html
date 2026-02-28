@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--
+    popup.html – ResumeAI
+    The UI rendered when the user clicks the extension icon.
+    Width is fixed at 400px (Chrome popup max is ~800px).
+    All logic lives in popup.js; all styles in popup.css.
+    Google Fonts loaded via <link> — allowed in extension popups.
+  -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ResumeAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <span class="logo-wordmark">Resume<em>AI</em></span>
+      <span class="logo-badge">MV3</span>
+    </div>
+    <div class="status-dot" id="statusDot"></div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       SCREEN 1 — ONBOARDING
+       Shown when no base resume is stored yet.
+       User uploads a resume file (PDF / DOCX / TXT) and enters their
+       OpenAI API key. Both are saved to chrome.storage.local.
+  ══════════════════════════════════════════════════════════════════════ -->
+  <section class="screen" id="screen-onboarding">
+
+    <div class="onboarding-headline">
+      <h2>Build your <em>perfect</em><br />resume in seconds.</h2>
+      <p>Upload your base resume once. ResumeAI will tailor it to every job you visit.</p>
+    </div>
+
+    <!-- Resume file upload -->
+    <div class="drop-zone" id="dropZone">
+      <div class="drop-icon">
+        <!-- Upload arrow SVG -->
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <div class="drop-text">
+        <strong>Drop your resume here</strong>
+        <span>PDF · DOCX · TXT</span>
+      </div>
+      <!--
+        Hidden real file input — triggered when user clicks the drop zone.
+        accept limits the picker to useful file types.
+      -->
+      <input
+        type="file"
+        id="fileInput"
+        accept=".pdf,.doc,.docx,.txt"
+        hidden
+      />
+    </div>
+
+    <!-- File picked confirmation (hidden until a file is chosen) -->
+    <div class="file-chosen" id="fileChosen" hidden>
+      <span class="file-icon">📄</span>
+      <span class="file-name" id="fileName"></span>
+      <button class="btn-clear" id="btnClearFile" title="Remove">✕</button>
+    </div>
+
+    <!-- OpenAI API key input -->
+    <div class="field-group">
+      <label class="field-label" for="apiKeyInput">OpenAI API Key</label>
+      <input
+        class="field-input"
+        type="password"
+        id="apiKeyInput"
+        placeholder="sk-..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <span class="field-hint">
+        Stored locally in your browser. Never sent anywhere except api.openai.com.
+      </span>
+    </div>
+
+    <!-- Save & continue -->
+    <button class="btn-primary" id="btnSaveSetup">Save &amp; Continue →</button>
+
+    <!-- Inline error message -->
+    <p class="error-msg" id="setupError" hidden></p>
+
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       SCREEN 2 — MAIN / GENERATE
+       Shown to returning users who already have a resume stored.
+       Reads job description from the current tab, calls OpenAI, shows result.
+  ══════════════════════════════════════════════════════════════════════ -->
+  <section class="screen" id="screen-main" hidden>
+
+    <!-- Job URL strip — shows which page was scraped -->
+    <div class="job-strip" id="jobStrip">
+      <span class="job-strip-label">Detected page</span>
+      <span class="job-strip-url" id="jobUrl">—</span>
+    </div>
+
+    <!-- Generate button — triggers the full scrape → API → display flow -->
+    <button class="btn-generate" id="btnGenerate">
+      <!--
+        Three inner elements toggled by popup.js:
+        .gen-idle   → default state
+        .gen-loading → spinner shown while waiting for API
+        (result replaces preview panel content on success)
+      -->
+      <span class="gen-idle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+        Tailor Resume to This Job
+      </span>
+      <span class="gen-loading" hidden>
+        <span class="spinner"></span>
+        Analysing &amp; rewriting…
+      </span>
+    </button>
+
+    <!-- Error banner (hidden unless an API / scraping error occurs) -->
+    <div class="error-banner" id="errorBanner" hidden>
+      <span id="errorMsg"></span>
+    </div>
+
+    <!-- ── Preview Panel ──────────────────────────────────────────────── -->
+    <!--
+      Scrollable area that displays the AI-generated tailored resume.
+      Starts with placeholder text. Replaced by AI output after generation.
+    -->
+    <div class="preview-wrap">
+      <div class="preview-header">
+        <span class="preview-label">Tailored Resume</span>
+        <span class="preview-hint" id="previewHint">Click "Tailor" to generate</span>
+      </div>
+      <div class="preview-panel" id="previewPanel">
+        <div class="preview-placeholder">
+          <p>Your AI-tailored resume will appear here.</p>
+          <p>Open a job posting, then click the button above.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Bottom Bar ─────────────────────────────────────────────────── -->
+    <div class="bottom-bar">
+      <!-- Copy the resume text to clipboard -->
+      <button class="btn-action" id="btnCopy" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+        </svg>
+        Copy
+      </button>
+
+      <!-- Download the resume as a plain .txt file -->
+      <button class="btn-action" id="btnDownload" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download
+      </button>
+
+      <!-- Reset back to onboarding (clear stored resume & key) -->
+      <button class="btn-reset" id="btnReset" title="Clear saved resume & API key">
+        Reset
+      </button>
+    </div>
+
+  </section>
+
+  <!-- ── Toast notification ───────────────────────────────────────────── -->
+  <!-- Shown briefly for copy / download confirmations -->
+  <div class="toast" id="toast"></div>
+
+  <!--
+    popup.js is loaded as a module so we can use top-level await
+    and keep the code clean. "defer" is implicit for type="module".
+  -->
+  <script src="popup.js" type="module"></script>
+
+</body>
+</html>

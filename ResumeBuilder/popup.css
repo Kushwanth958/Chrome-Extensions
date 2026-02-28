@@ -1,0 +1,629 @@
+/* ============================================================
+   popup.css – ResumeAI
+   Dark professional theme. Fixed 400 × 560 px popup.
+   Uses CSS custom properties throughout for easy theming.
+   Fonts: DM Serif Display (display) + Instrument Sans (body)
+          + DM Mono (monospace accents)
+============================================================ */
+
+/* ── Design Tokens ─────────────────────────────────────────── */
+:root {
+  --bg:            #0e0f13;
+  --surface:       #161820;
+  --surface-2:     #1e2028;
+  --border:        rgba(255, 255, 255, 0.07);
+  --border-hover:  rgba(255, 255, 255, 0.15);
+  --accent:        #c8f55a;           /* lime green — primary action */
+  --accent-dim:    rgba(200, 245, 90, 0.10);
+  --accent-glow:   rgba(200, 245, 90, 0.22);
+  --text:          #f0f0ec;
+  --text-muted:    #6b6e7a;
+  --text-dim:      #9a9da8;
+  --danger:        #ff5c5c;
+  --danger-dim:    rgba(255, 92, 92, 0.12);
+  --radius:        10px;
+  --radius-sm:     6px;
+}
+
+/* ── Reset & Base ───────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  width: 400px;
+  /* Height is auto so the popup grows with content up to Chrome's limit */
+  min-height: 300px;
+  max-height: 560px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Instrument Sans', sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;           /* prevent body scroll; inner panels scroll */
+
+  /* Subtle dot-grid background texture */
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.025) 1px,
+    transparent 1px
+  );
+  background-size: 20px 20px;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 18px 11px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);    /* sit on top of dot-grid */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.logo {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.logo-wordmark {
+  font-family: 'DM Serif Display', serif;
+  font-size: 17px;
+  letter-spacing: -0.3px;
+  color: var(--text);
+}
+
+.logo-wordmark em {
+  font-style: italic;
+  color: var(--accent);
+}
+
+.logo-badge {
+  font-family: 'DM Mono', monospace;
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid rgba(200, 245, 90, 0.22);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* Animated "online" indicator dot */
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+  animation: dotPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ── Screen container ───────────────────────────────────────── */
+/*
+  Each <section class="screen"> is a full view.
+  Only one is visible at a time (the other has `hidden`).
+  Transition is handled by toggling `hidden` + the .visible class
+  in popup.js, which fades the incoming screen in.
+*/
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  max-height: calc(560px - 46px); /* 46px = header height */
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  animation: screenIn 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.screen::-webkit-scrollbar { width: 4px; }
+.screen::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+@keyframes screenIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Onboarding screen ──────────────────────────────────────── */
+.onboarding-headline h2 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 21px;
+  font-weight: 400;
+  line-height: 1.25;
+  margin-bottom: 6px;
+}
+
+.onboarding-headline h2 em {
+  font-style: italic;
+  color: var(--accent);
+}
+
+.onboarding-headline p {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+/* Drop zone */
+.drop-zone {
+  border: 1px dashed var(--border-hover);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 28px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Radial glow on hover / drag-over */
+.drop-zone::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 60%, var(--accent-dim), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.drop-zone:hover::before,
+.drop-zone.drag-over::before { opacity: 1; }
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.drop-zone.drag-over { transform: scale(1.01); }
+
+.drop-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.drop-zone:hover .drop-icon,
+.drop-zone.drag-over .drop-icon {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.drop-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke: var(--text-dim);
+  transition: stroke 0.2s;
+}
+
+.drop-zone:hover .drop-icon svg,
+.drop-zone.drag-over .drop-icon svg { stroke: var(--accent); }
+
+.drop-text {
+  text-align: center;
+  position: relative; /* above the pseudo glow */
+}
+
+.drop-text strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.drop-text span {
+  font-family: 'DM Mono', monospace;
+  font-size: 9.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+/* File chosen row */
+.file-chosen {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--accent);
+}
+
+.btn-clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.btn-clear:hover { color: var(--danger); background: var(--danger-dim); }
+
+/* Form field group */
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.field-input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  width: 100%;
+}
+
+.field-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.field-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+
+/* Primary CTA (onboarding save) */
+.btn-primary {
+  width: 100%;
+  padding: 12px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #0d0d0d;
+  font-family: 'Instrument Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.15s, box-shadow 0.2s;
+}
+
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.18), transparent);
+}
+
+.btn-primary:hover  { transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-glow); }
+.btn-primary:active { transform: translateY(0); }
+
+/* Generate button (main screen) */
+.btn-generate {
+  width: 100%;
+  padding: 13px 16px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #0d0d0d;
+  font-family: 'Instrument Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.15s, box-shadow 0.2s, background 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+
+.btn-generate::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15), transparent);
+}
+
+.btn-generate:hover  { transform: translateY(-1px); box-shadow: 0 8px 24px var(--accent-glow); }
+.btn-generate:active { transform: translateY(0); }
+
+/* Disabled / loading state */
+.btn-generate:disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.gen-idle, .gen-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gen-idle svg { width: 14px; height: 14px; }
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--text-muted);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Action buttons (copy / download) */
+.btn-action {
+  flex: 1;
+  padding: 9px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-family: 'Instrument Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.btn-action svg { width: 12px; height: 12px; }
+
+.btn-action:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.btn-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Reset button */
+.btn-reset {
+  padding: 9px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: 'Instrument Sans', sans-serif;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.btn-reset:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ── Main screen components ─────────────────────────────────── */
+
+/* Job URL strip */
+.job-strip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.job-strip-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.job-strip-url {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Error banner */
+.error-banner {
+  background: var(--danger-dim);
+  border: 1px solid rgba(255, 92, 92, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-size: 12px;
+  color: var(--danger);
+  line-height: 1.45;
+  flex-shrink: 0;
+}
+
+/* Inline error under form */
+.error-msg {
+  font-size: 11.5px;
+  color: var(--danger);
+  text-align: center;
+}
+
+/* ── Preview panel ──────────────────────────────────────────── */
+.preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.preview-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.preview-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.preview-panel {
+  flex: 1;
+  min-height: 180px;
+  max-height: 260px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-y: auto;
+  padding: 14px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  transition: border-color 0.3s;
+}
+
+.preview-panel::-webkit-scrollbar { width: 4px; }
+.preview-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* Placeholder state */
+.preview-placeholder {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.preview-placeholder p {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* Result text (AI output rendered as pre-formatted text) */
+.preview-result {
+  font-family: 'DM Mono', monospace;
+  font-size: 10.5px;
+  line-height: 1.65;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: fadeIn 0.4s ease both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Bottom bar ─────────────────────────────────────────────── */
+.bottom-bar {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-top: 4px;   /* small breathing room above border */
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+/* ── Toast notification ─────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  background: var(--surface-2);
+  border: 1px solid rgba(200, 245, 90, 0.28);
+  border-radius: 20px;
+  padding: 7px 16px;
+  font-size: 11.5px;
+  color: var(--text);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s;
+  z-index: 100;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
