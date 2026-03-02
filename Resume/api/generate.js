@@ -64,19 +64,21 @@ function extractJsonObject(text) {
 // Vercel serverless functions export a default async function
 // that receives a Node.js IncomingMessage (req) and ServerResponse (res).
 export default async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   // ── Handle CORS pre-flight (OPTIONS) ────────────────────────
   // Browsers and extensions send an OPTIONS request before POST
   // when the origins differ. We respond 204 (No Content) to allow it.
   if (req.method === "OPTIONS") {
-    return res.status(204).set(CORS_HEADERS).end();
+    return res.status(204).end();
   }
 
   // ── Only accept POST ─────────────────────────────────────────
   if (req.method !== "POST") {
     return res
       .status(405)
-      .set(CORS_HEADERS)
       .json({ error: "Method not allowed. Use POST." });
   }
 
@@ -88,14 +90,12 @@ export default async function handler(req, res) {
   if (!resume || typeof resume !== "string" || resume.trim().length < 50) {
     return res
       .status(400)
-      .set(CORS_HEADERS)
       .json({ error: "Missing or too-short `resume` field in request body." });
   }
 
   if (!jobDescription || typeof jobDescription !== "string" || jobDescription.trim().length < 50) {
     return res
       .status(400)
-      .set(CORS_HEADERS)
       .json({ error: "Missing or too-short `jobDescription` field in request body." });
   }
 
@@ -105,7 +105,6 @@ export default async function handler(req, res) {
     console.error("[ResumeAI] GEMINI_API_KEY environment variable is not set.");
     return res
       .status(500)
-      .set(CORS_HEADERS)
       .json({ error: "Server configuration error. API key not set." });
   }
 
@@ -178,7 +177,6 @@ STRICT RULES — follow every one without exception:
     console.error("[ResumeAI] Network error calling Gemini:", networkErr);
     return res
       .status(502)
-      .set(CORS_HEADERS)
       .json({ error: "Could not reach the Gemini API. Please try again." });
   }
 
@@ -189,7 +187,6 @@ STRICT RULES — follow every one without exception:
     console.error("[ResumeAI] Gemini API error:", detail);
     return res
       .status(502)
-      .set(CORS_HEADERS)
       .json({ error: `Gemini API error: ${detail}` });
   }
 
@@ -203,7 +200,6 @@ STRICT RULES — follow every one without exception:
     console.error("[ResumeAI] Gemini returned empty content:", geminiData);
     return res
       .status(502)
-      .set(CORS_HEADERS)
       .json({ error: "Gemini returned an empty response. Please try again." });
   }
 
@@ -259,7 +255,6 @@ Rules:
     console.error("[ResumeAI] Network error calling Gemini (ATS):", networkErr);
     return res
       .status(502)
-      .set(CORS_HEADERS)
       .json({ error: "Could not reach the Gemini API for ATS scoring. Please try again." });
   }
 
@@ -269,7 +264,6 @@ Rules:
     console.error("[ResumeAI] Gemini API ATS error:", detail);
     return res
       .status(502)
-      .set(CORS_HEADERS)
       .json({ error: `Gemini API ATS error: ${detail}` });
   }
 
@@ -281,7 +275,6 @@ Rules:
     console.error("[ResumeAI] ATS scoring returned non-JSON:", { atsText, atsData });
     return res
       .status(502)
-      .set(CORS_HEADERS)
       .json({ error: "Claude returned an invalid ATS scoring response. Please try again." });
   }
 
@@ -295,6 +288,5 @@ Rules:
   // ── Return tailored resume + ATS result ───────────────────────
   return res
     .status(200)
-    .set({ ...CORS_HEADERS, "Content-Type": "application/json" })
     .json({ tailoredResume: tailoredText, atsScore });
 }
