@@ -2,8 +2,9 @@
 //  content.js – ResumeAI
 //
 //  Injected on-demand into the active tab by popup.js via
-//  chrome.scripting.executeScript the moment the popup opens.
-//  No user interaction required — extraction is fully automatic.
+//  chrome.scripting.executeScript when the popup requests a read.
+//  This script NEVER performs any network or API calls; it only
+//  reads from the DOM and returns plain text to the popup.
 //
 //  Strategy:
 //    1. Try known job-board CSS selectors first (fast, precise).
@@ -17,6 +18,8 @@
 // ============================================================
 
 (function extractJobDescription() {
+
+  console.log("[ResumeAI][content] Extracting job description from DOM only (no API calls).");
 
   const KEY_PHRASES = [
     "job description",

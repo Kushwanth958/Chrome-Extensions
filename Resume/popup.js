@@ -67,6 +67,14 @@ let pickedFileText   = null;   // file content during onboarding
 let scrapedJobText   = null;   // job description extracted from active tab
 let lastResult       = null;   // last Claude output (for copy/download)
 
+// Gemini / backend call protections
+let isCalling          = false;           // true while a generate call is in flight
+let lastCallTimestamp  = 0;               // ms since epoch when the last call started
+let lastClickTimestamp = 0;               // for debounce of rapid clicks
+
+const CLICK_DEBOUNCE_MS = 500;            // ignore clicks inside this window
+const CALL_COOLDOWN_MS  = 15_000;         // minimum gap between generate calls (15s)
+
 // ============================================================
 //  INIT
 // ============================================================
@@ -274,8 +282,41 @@ function clearSetupError() {
 //  GENERATE — calls the Vercel serverless function
 // ============================================================
 btnGenerate.addEventListener("click", async () => {
+  const now = Date.now();
+  console.log("[ResumeAI][popup] Tailor button clicked at", new Date(now).toISOString());
+
+  // ── Debounce rapid clicks ─────────────────────────────────────
+  if (now - lastClickTimestamp < CLICK_DEBOUNCE_MS) {
+    console.log("[ResumeAI][popup] Ignoring click (debounced)");
+    return;
+  }
+  lastClickTimestamp = now;
+
+  // ── Prevent duplicate in-flight calls ─────────────────────────
+  if (isCalling) {
+    console.log("[ResumeAI][popup] Ignoring click (call already in progress)");
+    return;
+  }
+
+  // ── Enforce cooldown between calls ────────────────────────────
+  if (lastCallTimestamp && now - lastCallTimestamp < CALL_COOLDOWN_MS) {
+    const remainingMs = CALL_COOLDOWN_MS - (now - lastCallTimestamp);
+    const remainingSec = Math.ceil(remainingMs / 1000);
+    console.log("[ResumeAI][popup] Ignoring click (cooldown active)", {
+      remainingMs,
+      remainingSec,
+    });
+    showError(`Please wait ${remainingSec}s before generating another tailored resume.`);
+    return;
+  }
+
   hideError();
+  isCalling = true;
+  lastCallTimestamp = now;
   setGenerating(true);
+  console.log("[ResumeAI][popup] Starting backend generate call", {
+    backendUrl: BACKEND_URL,
+  });
 
   try {
     // ── Load saved resume ────────────────────────────────────
@@ -329,9 +370,12 @@ btnGenerate.addEventListener("click", async () => {
     previewHint.textContent = "Claude-tailored · ATS-ready";
 
   } catch (err) {
+    console.error("[ResumeAI][popup] Generate call failed", err);
     showError(err.message || "Something went wrong. Please try again.");
   } finally {
+    isCalling = false;
     setGenerating(false);
+    console.log("[ResumeAI][popup] Backend generate call finished");
   }
 });
 
