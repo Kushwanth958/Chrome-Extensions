@@ -26,8 +26,22 @@
 // ── Constants ─────────────────────────────────────────────────
 const ANTHROPIC_MODEL   = "claude-sonnet-4-6";           // Anthropic Claude model
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MAX_TOKENS        = 2048;                          // enough for a full tailored resume
-const ATS_MAX_TOKENS    = 512;                           // enough for score + keywords + 1 sentence
+const MAX_TOKENS        = 2800;                          // upper bound for resume + ATS JSON
+
+function trimJobDescription(text) {
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(
+      (l) =>
+        l.length > 30 &&
+        !/equal opportunity|privacy|terms|cookie|benefits|accommodation|about us/i.test(
+          l
+        )
+    )
+    .join("\n")
+    .slice(0, 6000); // hard cap characters
+}
 
 // ── CORS headers ──────────────────────────────────────────────
 // The extension popup's origin is a chrome-extension:// URL.
@@ -99,6 +113,11 @@ export default async function handler(req, res) {
       .json({ error: "Missing or too-short `jobDescription` field in request body." });
   }
 
+  const cleanedJobDescription = trimJobDescription(jobDescription);
+
+  console.log("Resume length:", resume.length);
+  console.log("Job description length:", cleanedJobDescription.length);
+
   // ── Verify the server-side API key is present ────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -134,9 +153,18 @@ STRICT RULES — follow every one without exception:
    EXPERIENCE
    SKILLS
    EDUCATION
-6. PLAIN TEXT: Use plain text only. No markdown, no asterisks, no bullet unicode symbols — use a hyphen (-) for bullet points. No JSON. No commentary.
+6. PLAIN TEXT: Use plain text only. No markdown, no asterisks, no bullet unicode symbols — use a hyphen (-) for bullet points.
 7. LENGTH: Aim for one tight page worth of content. Cut filler phrases (e.g. "responsible for", "worked on"). Every word must earn its place.
-8. PROFESSIONAL TONE: Confident, active voice throughout.`;
+8. PROFESSIONAL TONE: Confident, active voice throughout.
+
+After outputting the tailored resume in plain text, append a valid JSON object on a new line with the following fields:
+- score (number 0–100)
+- matchedKeywords (array of strings)
+- missingKeywords (array of strings)
+- advice (one sentence string)
+
+Output ONLY the resume followed by the JSON object.
+No markdown. No code fences. No commentary.`;
 
   const userPrompt =
     `CANDIDATE'S ORIGINAL RESUME:\n` +
@@ -144,7 +172,7 @@ STRICT RULES — follow every one without exception:
     `${resume.trim()}\n\n` +
     `JOB DESCRIPTION THEY ARE APPLYING TO:\n` +
     `${"─".repeat(60)}\n` +
-    `${jobDescription.trim()}\n\n` +
+    `${cleanedJobDescription}\n\n` +
     `Please produce the tailored resume now, following all rules exactly.`;
 
   // ── Call the Anthropic Claude API ────────────────────────────
@@ -196,91 +224,40 @@ STRICT RULES — follow every one without exception:
   // Anthropic Messages API response shape:
   // { content: [ { type: "text", text: "..." } ], ... }
   const claudeData   = await claudeResponse.json();
-  const tailoredText = claudeData?.content?.[0]?.text?.trim();
+  const combinedText = claudeData?.content?.[0]?.text?.trim();
 
-  if (!tailoredText) {
+  if (!combinedText) {
     console.error("[ResumeAI] Claude returned empty content:", claudeData);
     return res
       .status(502)
       .json({ error: "Claude returned an empty response. Please try again." });
   }
 
-  // ── ATS scoring call (second Gemini request) ─────────────────
-  const atsSystemPrompt = `You are an ATS (Applicant Tracking System) evaluator.
-
-Compare the tailored resume against the job description and output ONLY a valid JSON object with exactly these fields:
-- score: number from 0 to 100 (integer preferred)
-- matchedKeywords: array of strings (keywords/skills/phrases present in BOTH resume and job description)
-- missingKeywords: array of strings (important keywords/skills/phrases present in the job description but NOT in the resume)
-- advice: one sentence string with the most impactful improvement to increase the score
-
-Rules:
-- Output JSON only. No markdown. No code fences. No extra keys.
-- Keep keyword strings short (1-4 words) and deduplicate.
-- If unsure about a keyword match, treat it as missing.`;
-
-  const atsUserPrompt =
-    `TAILORED RESUME:\n` +
-    `${"─".repeat(60)}\n` +
-    `${tailoredText}\n\n` +
-    `JOB DESCRIPTION:\n` +
-    `${"─".repeat(60)}\n` +
-    `${jobDescription.trim()}\n\n` +
-    `Return the JSON now.`;
-
-  let atsResponse;
-  try {
-    atsResponse = await fetch(ANTHROPIC_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: ATS_MAX_TOKENS,
-        temperature: 0.2,
-        system: atsSystemPrompt,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: atsUserPrompt,
-              },
-            ],
-          },
-        ],
-      }),
-    });
-  } catch (networkErr) {
-    console.error("[ResumeAI] Network error calling Anthropic Claude (ATS):", networkErr);
-    return res
-      .status(502)
-      .json({ error: "Could not reach the Anthropic API for ATS scoring. Please try again." });
-  }
-
-  if (!atsResponse.ok) {
-    const errorBody = await atsResponse.json().catch(() => ({}));
-    const detail    = errorBody?.error?.message || `HTTP ${atsResponse.status}`;
-    console.error("[ResumeAI] Anthropic API ATS error:", detail);
-    return res
-      .status(502)
-      .json({ error: `Anthropic API ATS error: ${detail}` });
-  }
-
-  const atsData = await atsResponse.json();
-  const atsText = atsData?.content?.[0]?.text?.trim();
-  const atsObj  = extractJsonObject(atsText);
+  const atsObj = extractJsonObject(combinedText);
 
   if (!atsObj || typeof atsObj !== "object") {
-    console.error("[ResumeAI] ATS scoring returned non-JSON:", { atsText, atsData });
+    console.error("[ResumeAI] Combined Claude response did not contain valid ATS JSON:", {
+      combinedText,
+    });
     return res
       .status(502)
       .json({ error: "Claude returned an invalid ATS scoring response. Please try again." });
   }
+
+  const trimmedCombined = combinedText.trim();
+  const firstBrace = trimmedCombined.indexOf("{");
+  const lastBrace = trimmedCombined.lastIndexOf("}");
+
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    console.error("[ResumeAI] Could not locate JSON block in combined response:", {
+      combinedText,
+    });
+    return res
+      .status(502)
+      .json({ error: "Claude returned an invalid ATS scoring response. Please try again." });
+  }
+
+  const resumeOnlyText = trimmedCombined.slice(0, firstBrace).trimEnd();
 
   const atsScore = {
     score: typeof atsObj.score === "number" ? Math.max(0, Math.min(100, Math.round(atsObj.score))) : 0,
@@ -292,5 +269,5 @@ Rules:
   // ── Return tailored resume + ATS result ───────────────────────
   return res
     .status(200)
-    .json({ tailoredResume: tailoredText, atsScore });
+    .json({ tailoredResume: resumeOnlyText, atsScore });
 }
