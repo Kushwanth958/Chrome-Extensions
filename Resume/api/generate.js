@@ -24,8 +24,8 @@
 //    - The function runs on Node.js 18.x runtime by default.
 // ============================================================
 
-import pdf from "pdf-parse";
-import mammoth from "mammoth";
+// import pdf from "pdf-parse";
+// import mammoth from "mammoth";
 
 // ── Constants ─────────────────────────────────────────────────
 const ANTHROPIC_MODEL   = "claude-sonnet-4-6";           // Anthropic Claude model
@@ -281,11 +281,8 @@ No markdown. No code fences. No commentary.`;
   let parsedObject = null;
 
   try {
-    // First, try to parse the entire response as JSON.
     parsedObject = JSON.parse(rawText);
   } catch {
-    // If that fails, safely extract the substring between the first '{'
-    // and the last '}' and attempt to parse that as JSON.
     const firstBrace = rawText.indexOf("{");
     const lastBrace = rawText.lastIndexOf("}");
 
@@ -306,46 +303,17 @@ No markdown. No code fences. No commentary.`;
       .json({ error: "Claude returned invalid JSON. Please try again." });
   }
 
-  const parsed = parsedObject;
-
-  // Enforce that the core sections exist and are structurally valid.
-  const hasSummary = typeof parsed.summary === "string";
-  const hasSkills = Array.isArray(parsed.skills);
-  const hasExperience = Array.isArray(parsed.experience);
-  const hasEducation = Array.isArray(parsed.education);
-
-  if (!hasSummary || !hasSkills || !hasExperience || !hasEducation) {
-    console.error("[ResumeAI] Missing or invalid required sections in JSON response:", {
-      hasSummary,
-      hasSkills,
-      hasExperience,
-      hasEducation,
-      parsed,
-    });
-    return res
-      .status(502)
-      .json({ error: "Claude returned JSON missing required structured fields. Please try again." });
+  const requiredKeys = ["summary", "skills", "experience", "education"];
+  for (const key of requiredKeys) {
+    if (!(key in parsedObject)) {
+      console.error("[ResumeAI] Missing required key in JSON response:", key, parsedObject);
+      return res
+        .status(502)
+        .json({ error: "Claude returned JSON missing required fields. Please try again." });
+    }
   }
 
-  // Normalize the JSON structure, tolerating any missing optional fields.
-  const normalized = {
-    fullName: parsed.fullName || "",
-    contact: {
-      phone: parsed.contact?.phone || "",
-      email: parsed.contact?.email || "",
-      address: parsed.contact?.address || "",
-      linkedin: parsed.contact?.linkedin || "",
-    },
-    summary: typeof parsed.summary === "string" ? parsed.summary : "",
-    skills: Array.isArray(parsed.skills) ? parsed.skills : [],
-    experience: Array.isArray(parsed.experience) ? parsed.experience : [],
-    education: Array.isArray(parsed.education) ? parsed.education : [],
-    certifications: Array.isArray(parsed.certifications) ? parsed.certifications : [],
-    projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-    hobbies: Array.isArray(parsed.hobbies) ? parsed.hobbies : [],
-  };
-
   return res.status(200).json({
-    resumeData: normalized,
+    resumeData: parsedObject,
   });
 }
