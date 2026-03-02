@@ -24,8 +24,8 @@
 //    - The function runs on Node.js 18.x runtime by default.
 // ============================================================
 
-import pdf from "pdf-parse";
-import mammoth from "mammoth";
+// import pdf from "pdf-parse";
+// import mammoth from "mammoth";
 
 // ── Constants ─────────────────────────────────────────────────
 const ANTHROPIC_MODEL   = "claude-sonnet-4-6";           // Anthropic Claude model
