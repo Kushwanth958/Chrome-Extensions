@@ -75,21 +75,44 @@ let lastClickTimestamp = 0;               // for debounce of rapid clicks
 const CLICK_DEBOUNCE_MS = 500;            // ignore clicks inside this window
 const CALL_COOLDOWN_MS  = 15_000;         // minimum gap between generate calls (15s)
 
+function updateGenerateButtonState() {
+  const hasResume = !!pickedFileText;
+  const hasJob =
+    typeof scrapedJobText === "string" && scrapedJobText.trim().length >= 150;
+  const canGenerate = hasResume && hasJob && !isCalling;
+  btnGenerate.disabled = !canGenerate;
+}
+
 // ============================================================
 //  INIT
 // ============================================================
 async function init() {
+  // Reset UI state on popup open so the spinner is never shown
+  // unless a real backend call is in flight.
+  isCalling = false;
+  setGenerating(false);
+  hideError();
+  btnCopy.disabled = true;
+  btnDownload.disabled = true;
+  lastResult = null;
+
   const stored = await chrome.storage.local.get(STORAGE_KEY_RESUME);
 
   if (stored[STORAGE_KEY_RESUME]) {
+    // Restore resume object into memory for this popup session.
+    pickedFileText = stored[STORAGE_KEY_RESUME];
+
     showScreen("main");
     // Resume already saved from a previous session:
     // start with Tailor disabled, then scan the current page.
-    btnGenerate.disabled = true;
+    updateGenerateButtonState();
+    showToast("Resume loaded \u2713", 1800);
     await autoScrapeJobDescription();
   } else {
     showScreen("onboarding");
   }
+
+  updateGenerateButtonState();
 }
 
 // ── Screen switcher ───────────────────────────────────────────
@@ -149,7 +172,7 @@ async function autoScrapeJobDescription() {
         "⚠",
         "No job description detected on this page. Please navigate to a job posting."
       );
-      btnGenerate.disabled = true;
+      updateGenerateButtonState();
       return;
     }
 
@@ -162,7 +185,7 @@ async function autoScrapeJobDescription() {
         "Couldn't extract enough text. Make sure you're on a job description page."
       );
       scrapedJobText = null;
-      btnGenerate.disabled = true;
+      updateGenerateButtonState();
       return;
     }
 
@@ -174,13 +197,13 @@ async function autoScrapeJobDescription() {
       "✓",
       `Job description captured (${wordCount} words) — ready to tailor.`
     );
-    btnGenerate.disabled = false;
+    updateGenerateButtonState();
 
   } catch (err) {
     setExtractStatus("error", "✕", `Could not read page: ${err.message}`);
     // On error we keep Tailor disabled until a successful scan.
     scrapedJobText = null;
-    btnGenerate.disabled = true;
+    updateGenerateButtonState();
   }
 }
 
@@ -223,22 +246,37 @@ fileInput.addEventListener("change", () => {
   if (fileInput.files?.[0]) handleFilePicked(fileInput.files[0]);
 });
 
-// Read the picked file as UTF-8 text
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// Read the picked file as binary and convert to base64
 function handleFilePicked(file) {
   const reader = new FileReader();
 
   reader.onload = (e) => {
-    pickedFileText = e.target.result;
+    const base64String = arrayBufferToBase64(e.target.result);
+    pickedFileText = {
+      fileName: file.name,
+      fileType: file.type || "",
+      base64: base64String,
+    };
     fileName.textContent = file.name;
     fileChosen.hidden = false;
     clearSetupError();
+    updateGenerateButtonState();
   };
 
   reader.onerror = () => {
-    showSetupError("Could not read the file. Please try a .txt export of your resume.");
+    showSetupError("Could not read the file. Please try a PDF, DOCX, or .txt export of your resume.");
   };
 
-  reader.readAsText(file);
+  reader.readAsArrayBuffer(file);
 }
 
 // Clear chosen file
@@ -246,26 +284,30 @@ btnClearFile.addEventListener("click", () => {
   pickedFileText  = null;
   fileInput.value = "";
   fileChosen.hidden = true;
+  updateGenerateButtonState();
 });
 
 // Save setup (resume only — no API key in v2)
 btnSaveSetup.addEventListener("click", async () => {
   clearSetupError();
 
-  if (!pickedFileText || pickedFileText.trim().length < 50) {
+  if (
+    !pickedFileText ||
+    typeof pickedFileText.base64 !== "string" ||
+    pickedFileText.base64.trim().length === 0
+  ) {
     return showSetupError("Please upload your resume file first.");
   }
 
-  // Persist resume text locally
+  // Persist resume object locally
   await chrome.storage.local.set({
-    [STORAGE_KEY_RESUME]: pickedFileText.trim(),
+    [STORAGE_KEY_RESUME]: pickedFileText,
   });
 
   // Transition to main screen and immediately start scraping the
   // current page for a job description. Tailor remains disabled
   // until a valid job description is found.
   showScreen("main");
-  btnGenerate.disabled = true;
   await autoScrapeJobDescription();
 });
 
@@ -323,9 +365,18 @@ btnGenerate.addEventListener("click", async () => {
     const stored = await chrome.storage.local.get(STORAGE_KEY_RESUME);
     const baseResume = stored[STORAGE_KEY_RESUME];
 
-    if (!baseResume) {
-      throw new Error("No saved resume found. Please reset and upload your resume again.");
+    if (
+      !baseResume ||
+      typeof baseResume !== "object" ||
+      typeof baseResume.base64 !== "string" ||
+      !baseResume.base64 ||
+      typeof baseResume.fileName !== "string"
+    ) {
+      throw new Error("Saved resume is invalid. Please reset and upload your resume again.");
     }
+
+    // Keep in-memory copy in sync
+    pickedFileText = baseResume;
 
     // ── Use scraped text — Tailor should only be reachable after
     // a successful scan that detected a job description.
@@ -343,7 +394,7 @@ btnGenerate.addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        resume:         baseResume.trim(),
+        resume:         baseResume,
         jobDescription: jobText.trim(),
       }),
     });
@@ -455,13 +506,14 @@ btnReset.addEventListener("click", async () => {
   previewHint.textContent = "Ready when you are";
 
   showScreen("onboarding");
+  updateGenerateButtonState();
 });
 
 // ── UI state helpers ──────────────────────────────────────────
 function setGenerating(on) {
-  btnGenerate.disabled = on;
   genIdle.hidden       = on;
   genLoading.hidden    = !on;
+  updateGenerateButtonState();
 }
 
 function showError(msg) {

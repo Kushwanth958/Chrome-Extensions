@@ -6,9 +6,10 @@
 //
 //  Responsibilities:
 //    1. Validate the incoming request body (resume + jobDescription).
-//    2. Call the Anthropic Claude API using the ANTHROPIC_API_KEY
+//    2. Parse the uploaded resume file (PDF/DOCX/TXT) into plain text.
+//    3. Call the Anthropic Claude API using the ANTHROPIC_API_KEY
 //       environment variable set securely in the Vercel dashboard.
-//    3. Return the tailored resume text as JSON.
+//    4. Return the tailored resume text as JSON.
 //
 //  The API key is NEVER exposed to the client. The extension only
 //  ever talks to this endpoint, not to Anthropic directly.
@@ -22,6 +23,9 @@
 //      serverless functions with no extra configuration needed.
 //    - The function runs on Node.js 18.x runtime by default.
 // ============================================================
+
+import pdf from "pdf-parse";
+import mammoth from "mammoth";
 
 // ── Constants ─────────────────────────────────────────────────
 const ANTHROPIC_MODEL   = "claude-sonnet-4-6";           // Anthropic Claude model
@@ -52,6 +56,38 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
+
+async function extractResumeText(fileObj) {
+  if (!fileObj || typeof fileObj !== "object") {
+    throw new Error("Invalid resume payload.");
+  }
+
+  const fileName = typeof fileObj.fileName === "string" ? fileObj.fileName : "";
+  const base64 = typeof fileObj.base64 === "string" ? fileObj.base64 : "";
+
+  if (!fileName || !base64) {
+    throw new Error("Invalid resume payload.");
+  }
+
+  const buffer = Buffer.from(base64, "base64");
+  const lowerName = fileName.toLowerCase();
+
+  if (lowerName.endsWith(".pdf")) {
+    const parsed = await pdf(buffer);
+    return parsed.text || "";
+  }
+
+  if (lowerName.endsWith(".docx")) {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value || "";
+  }
+
+  if (lowerName.endsWith(".txt")) {
+    return buffer.toString("utf8");
+  }
+
+  throw new Error("Unsupported file format.");
+}
 
 function extractJsonObject(text) {
   if (typeof text !== "string") return null;
@@ -101,10 +137,21 @@ export default async function handler(req, res) {
   // application/json, so req.body is already an object.
   const { resume, jobDescription } = req.body ?? {};
 
-  if (!resume || typeof resume !== "string" || resume.trim().length < 50) {
+  if (!resume || typeof resume !== "object") {
     return res
       .status(400)
-      .json({ error: "Missing or too-short `resume` field in request body." });
+      .json({ error: "Invalid `resume` field. Expected a file object." });
+  }
+
+  const hasFileName =
+    typeof resume.fileName === "string" && resume.fileName.trim().length > 0;
+  const hasBase64 =
+    typeof resume.base64 === "string" && resume.base64.trim().length > 0;
+
+  if (!hasFileName || !hasBase64) {
+    return res
+      .status(400)
+      .json({ error: "Invalid `resume` object. Missing fileName or base64 data." });
   }
 
   if (!jobDescription || typeof jobDescription !== "string" || jobDescription.trim().length < 50) {
@@ -115,7 +162,27 @@ export default async function handler(req, res) {
 
   const cleanedJobDescription = trimJobDescription(jobDescription);
 
-  console.log("Resume length:", resume.length);
+  let resumeText;
+  try {
+    resumeText = await extractResumeText(resume);
+  } catch (err) {
+    console.error("[ResumeAI] Failed to parse resume file:", err);
+    const msg = err?.message || "";
+    if (msg.includes("Unsupported file format") || msg.includes("Invalid resume payload")) {
+      return res.status(400).json({ error: msg || "Unsupported resume file format." });
+    }
+    return res
+      .status(500)
+      .json({
+        error:
+          "Failed to read resume file. Please try again with a valid PDF, DOCX, or TXT file.",
+      });
+  }
+
+  const safeResumeText = (resumeText || "").slice(0, 8000);
+
+  console.log("Resume text length:", resumeText ? resumeText.length : 0);
+  console.log("Safe resume text length:", safeResumeText.length);
   console.log("Job description length:", cleanedJobDescription.length);
 
   // ── Verify the server-side API key is present ────────────────
@@ -169,7 +236,7 @@ No markdown. No code fences. No commentary.`;
   const userPrompt =
     `CANDIDATE'S ORIGINAL RESUME:\n` +
     `${"─".repeat(60)}\n` +
-    `${resume.trim()}\n\n` +
+    `${safeResumeText.trim()}\n\n` +
     `JOB DESCRIPTION THEY ARE APPLYING TO:\n` +
     `${"─".repeat(60)}\n` +
     `${cleanedJobDescription}\n\n` +
