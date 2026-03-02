@@ -6,15 +6,15 @@
 //
 //  Responsibilities:
 //    1. Validate the incoming request body (resume + jobDescription).
-//    2. Call the Google Gemini API using the GEMINI_API_KEY
+//    2. Call the Anthropic Claude API using the ANTHROPIC_API_KEY
 //       environment variable set securely in the Vercel dashboard.
 //    3. Return the tailored resume text as JSON.
 //
 //  The API key is NEVER exposed to the client. The extension only
-//  ever talks to this endpoint, not to Google directly.
+//  ever talks to this endpoint, not to Anthropic directly.
 //
 //  Environment variables required (set in Vercel dashboard):
-//    GEMINI_API_KEY  – your Google Gemini API key
+//    ANTHROPIC_API_KEY  – your Anthropic Claude API key
 //
 //  Vercel deployment:
 //    - Place this file at /api/generate.js in your project root.
@@ -24,10 +24,10 @@
 // ============================================================
 
 // ── Constants ─────────────────────────────────────────────────
-const GEMINI_MODEL    = "gemini-2.0-flash"; // fast, high-quality
-const GEMINI_API_URL  = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-const MAX_TOKENS      = 2048;                // enough for a full tailored resume
-const ATS_MAX_TOKENS  = 512;                 // enough for score + keywords + 1 sentence
+const ANTHROPIC_MODEL   = "claude-sonnet-4-6";           // Anthropic Claude model
+const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+const MAX_TOKENS        = 2048;                          // enough for a full tailored resume
+const ATS_MAX_TOKENS    = 512;                           // enough for score + keywords + 1 sentence
 
 // ── CORS headers ──────────────────────────────────────────────
 // The extension popup's origin is a chrome-extension:// URL.
@@ -100,9 +100,9 @@ export default async function handler(req, res) {
   }
 
   // ── Verify the server-side API key is present ────────────────
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.error("[ResumeAI] GEMINI_API_KEY environment variable is not set.");
+    console.error("[ResumeAI] ANTHROPIC_API_KEY environment variable is not set.");
     return res
       .status(500)
       .json({ error: "Server configuration error. API key not set." });
@@ -147,60 +147,62 @@ STRICT RULES — follow every one without exception:
     `${jobDescription.trim()}\n\n` +
     `Please produce the tailored resume now, following all rules exactly.`;
 
-  const geminiPrompt =
-    `${systemPrompt}\n\n` +
-    `${"─".repeat(60)}\n` +
-    `${userPrompt}`;
-
-  // ── Call the Google Gemini API ───────────────────────────────
+  // ── Call the Anthropic Claude API ────────────────────────────
   // Using the raw fetch API (available in Node 18+), no client SDK needed.
-  let geminiResponse;
+  let claudeResponse;
   try {
-    geminiResponse = await fetch(`${GEMINI_API_URL}?key=${encodeURIComponent(apiKey)}`, {
+    claudeResponse = await fetch(ANTHROPIC_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        contents: [
+        model: ANTHROPIC_MODEL,
+        max_tokens: MAX_TOKENS,
+        system: systemPrompt,
+        messages: [
           {
             role: "user",
-            parts: [{ text: geminiPrompt }],
+            content: [
+              {
+                type: "text",
+                text: userPrompt,
+              },
+            ],
           },
         ],
-        generationConfig: {
-          maxOutputTokens: MAX_TOKENS,
-        },
       }),
     });
   } catch (networkErr) {
-    console.error("[ResumeAI] Network error calling Gemini:", networkErr);
+    console.error("[ResumeAI] Network error calling Anthropic Claude:", networkErr);
     return res
       .status(502)
-      .json({ error: "Could not reach the Gemini API. Please try again." });
+      .json({ error: "Could not reach the Anthropic API. Please try again." });
   }
 
-  // ── Handle non-2xx from Gemini ───────────────────────────────
-  if (!geminiResponse.ok) {
-    const errorBody = await geminiResponse.json().catch(() => ({}));
-    const detail    = errorBody?.error?.message || `HTTP ${geminiResponse.status}`;
-    console.error("[ResumeAI] Gemini API error:", detail);
+  // ── Handle non-2xx from Claude ───────────────────────────────
+  if (!claudeResponse.ok) {
+    const errorBody = await claudeResponse.json().catch(() => ({}));
+    const detail    = errorBody?.error?.message || `HTTP ${claudeResponse.status}`;
+    console.error("[ResumeAI] Anthropic API error:", detail);
     return res
       .status(502)
-      .json({ error: `Gemini API error: ${detail}` });
+      .json({ error: `Anthropic API error: ${detail}` });
   }
 
   // ── Extract the generated text ───────────────────────────────
-  // Gemini response shape:
-  // { candidates: [ { content: { parts: [ { text: "..." } ] } } ], ... }
-  const geminiData   = await geminiResponse.json();
-  const tailoredText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  // Anthropic Messages API response shape:
+  // { content: [ { type: "text", text: "..." } ], ... }
+  const claudeData   = await claudeResponse.json();
+  const tailoredText = claudeData?.content?.[0]?.text?.trim();
 
   if (!tailoredText) {
-    console.error("[ResumeAI] Gemini returned empty content:", geminiData);
+    console.error("[ResumeAI] Claude returned empty content:", claudeData);
     return res
       .status(502)
-      .json({ error: "Gemini returned an empty response. Please try again." });
+      .json({ error: "Claude returned an empty response. Please try again." });
   }
 
   // ── ATS scoring call (second Gemini request) ─────────────────
@@ -226,49 +228,51 @@ Rules:
     `${jobDescription.trim()}\n\n` +
     `Return the JSON now.`;
 
-  const atsGeminiPrompt =
-    `${atsSystemPrompt}\n\n` +
-    `${"─".repeat(60)}\n` +
-    `${atsUserPrompt}`;
-
   let atsResponse;
   try {
-    atsResponse = await fetch(`${GEMINI_API_URL}?key=${encodeURIComponent(apiKey)}`, {
+    atsResponse = await fetch(ANTHROPIC_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        contents: [
+        model: ANTHROPIC_MODEL,
+        max_tokens: ATS_MAX_TOKENS,
+        temperature: 0.2,
+        system: atsSystemPrompt,
+        messages: [
           {
             role: "user",
-            parts: [{ text: atsGeminiPrompt }],
+            content: [
+              {
+                type: "text",
+                text: atsUserPrompt,
+              },
+            ],
           },
         ],
-        generationConfig: {
-          maxOutputTokens: ATS_MAX_TOKENS,
-          temperature: 0.2,
-        },
       }),
     });
   } catch (networkErr) {
-    console.error("[ResumeAI] Network error calling Gemini (ATS):", networkErr);
+    console.error("[ResumeAI] Network error calling Anthropic Claude (ATS):", networkErr);
     return res
       .status(502)
-      .json({ error: "Could not reach the Gemini API for ATS scoring. Please try again." });
+      .json({ error: "Could not reach the Anthropic API for ATS scoring. Please try again." });
   }
 
   if (!atsResponse.ok) {
     const errorBody = await atsResponse.json().catch(() => ({}));
     const detail    = errorBody?.error?.message || `HTTP ${atsResponse.status}`;
-    console.error("[ResumeAI] Gemini API ATS error:", detail);
+    console.error("[ResumeAI] Anthropic API ATS error:", detail);
     return res
       .status(502)
-      .json({ error: `Gemini API ATS error: ${detail}` });
+      .json({ error: `Anthropic API ATS error: ${detail}` });
   }
 
   const atsData = await atsResponse.json();
-  const atsText = atsData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  const atsText = atsData?.content?.[0]?.text?.trim();
   const atsObj  = extractJsonObject(atsText);
 
   if (!atsObj || typeof atsObj !== "object") {
