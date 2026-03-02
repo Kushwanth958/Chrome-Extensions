@@ -30,7 +30,7 @@
 // ── Constants ─────────────────────────────────────────────────
 const ANTHROPIC_MODEL   = "claude-sonnet-4-6";           // Anthropic Claude model
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MAX_TOKENS        = 2800;                          // upper bound for resume + ATS JSON
+const MAX_TOKENS        = 2500;                          // upper bound for structured JSON resume
 
 function trimJobDescription(text) {
   return text
@@ -87,27 +87,6 @@ async function extractResumeText(fileObj) {
   }
 
   throw new Error("Unsupported file format.");
-}
-
-function extractJsonObject(text) {
-  if (typeof text !== "string") return null;
-  const trimmed = text.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    // fall through
-  }
-
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace  = trimmed.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return null;
-
-  const candidate = trimmed.slice(firstBrace, lastBrace + 1);
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    return null;
-  }
 }
 
 // ── Main handler ──────────────────────────────────────────────
@@ -193,7 +172,7 @@ export default async function handler(req, res) {
       .json({ error: "Server configuration error. API key not set." });
   }
 
-  // ── Build the Gemini prompt ──────────────────────────────────
+  // ── Build the Anthropic prompt ───────────────────────────────
   //
   // System prompt:  defines Claude's persona, strict rules, and output format.
   // User message:   injects the candidate's resume + the scraped job description.
@@ -286,54 +265,55 @@ No markdown. No code fences. No commentary.`;
       .json({ error: `Anthropic API error: ${detail}` });
   }
 
-  // ── Extract the generated text ───────────────────────────────
+  // ── Extract and parse the generated JSON ──────────────────────
   // Anthropic Messages API response shape:
   // { content: [ { type: "text", text: "..." } ], ... }
-  const claudeData   = await claudeResponse.json();
-  const combinedText = claudeData?.content?.[0]?.text?.trim();
+  const claudeData = await claudeResponse.json();
+  const rawText = claudeData?.content?.[0]?.text?.trim();
 
-  if (!combinedText) {
+  if (!rawText) {
     console.error("[ResumeAI] Claude returned empty content:", claudeData);
     return res
       .status(502)
       .json({ error: "Claude returned an empty response. Please try again." });
   }
 
-  const atsObj = extractJsonObject(combinedText);
+  let parsedObject = null;
 
-  if (!atsObj || typeof atsObj !== "object") {
-    console.error("[ResumeAI] Combined Claude response did not contain valid ATS JSON:", {
-      combinedText,
-    });
-    return res
-      .status(502)
-      .json({ error: "Claude returned an invalid ATS scoring response. Please try again." });
+  try {
+    parsedObject = JSON.parse(rawText);
+  } catch {
+    const firstBrace = rawText.indexOf("{");
+    const lastBrace = rawText.lastIndexOf("}");
+
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      const candidate = rawText.slice(firstBrace, lastBrace + 1);
+      try {
+        parsedObject = JSON.parse(candidate);
+      } catch {
+        parsedObject = null;
+      }
+    }
   }
 
-  const trimmedCombined = combinedText.trim();
-  const firstBrace = trimmedCombined.indexOf("{");
-  const lastBrace = trimmedCombined.lastIndexOf("}");
-
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    console.error("[ResumeAI] Could not locate JSON block in combined response:", {
-      combinedText,
-    });
+  if (!parsedObject || typeof parsedObject !== "object") {
+    console.error("[ResumeAI] Claude returned invalid JSON:", { rawText });
     return res
       .status(502)
-      .json({ error: "Claude returned an invalid ATS scoring response. Please try again." });
+      .json({ error: "Claude returned invalid JSON. Please try again." });
   }
 
-  const resumeOnlyText = trimmedCombined.slice(0, firstBrace).trimEnd();
+  const requiredKeys = ["summary", "skills", "experience", "education"];
+  for (const key of requiredKeys) {
+    if (!(key in parsedObject)) {
+      console.error("[ResumeAI] Missing required key in JSON response:", key, parsedObject);
+      return res
+        .status(502)
+        .json({ error: "Claude returned JSON missing required fields. Please try again." });
+    }
+  }
 
-  const atsScore = {
-    score: typeof atsObj.score === "number" ? Math.max(0, Math.min(100, Math.round(atsObj.score))) : 0,
-    matchedKeywords: Array.isArray(atsObj.matchedKeywords) ? atsObj.matchedKeywords.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim()) : [],
-    missingKeywords: Array.isArray(atsObj.missingKeywords) ? atsObj.missingKeywords.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim()) : [],
-    advice: typeof atsObj.advice === "string" ? atsObj.advice.trim() : "",
-  };
-
-  // ── Return tailored resume + ATS result ───────────────────────
-  return res
-    .status(200)
-    .json({ tailoredResume: resumeOnlyText, atsScore });
+  return res.status(200).json({
+    resumeData: parsedObject,
+  });
 }
