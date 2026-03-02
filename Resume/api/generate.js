@@ -135,24 +135,11 @@ export default async function handler(req, res) {
   // ── Parse and validate the request body ─────────────────────
   // Vercel automatically parses JSON bodies when Content-Type is
   // application/json, so req.body is already an object.
-  const { resume, jobDescription } = req.body ?? {};
+  const { resumeText: resumeTextRaw, resume, jobDescription } = req.body ?? {};
 
-  if (!resume || typeof resume !== "object") {
-    return res
-      .status(400)
-      .json({ error: "Invalid `resume` field. Expected a file object." });
-  }
-
-  const hasFileName =
-    typeof resume.fileName === "string" && resume.fileName.trim().length > 0;
-  const hasBase64 =
-    typeof resume.base64 === "string" && resume.base64.trim().length > 0;
-
-  if (!hasFileName || !hasBase64) {
-    return res
-      .status(400)
-      .json({ error: "Invalid `resume` object. Missing fileName or base64 data." });
-  }
+  const hasResumeText =
+    typeof resumeTextRaw === "string" && resumeTextRaw.trim().length > 0;
+  const hasResumeFileObject = resume && typeof resume === "object";
 
   if (!jobDescription || typeof jobDescription !== "string" || jobDescription.trim().length < 50) {
     return res
@@ -164,7 +151,19 @@ export default async function handler(req, res) {
 
   let resumeText;
   try {
-    resumeText = await extractResumeText(resume);
+    if (hasResumeText) {
+      resumeText = resumeTextRaw;
+    } else if (hasResumeFileObject) {
+      // Backwards compatibility for older clients that still send base64.
+      resumeText = await extractResumeText(resume);
+    } else {
+      return res
+        .status(400)
+        .json({
+          error:
+            "Missing resume content. Provide `resumeText` (plain text) or a legacy `resume` file object.",
+        });
+    }
   } catch (err) {
     console.error("[ResumeAI] Failed to parse resume file:", err);
     const msg = err?.message || "";

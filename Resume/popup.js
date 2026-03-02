@@ -31,8 +31,11 @@
 const BACKEND_URL = "https://chromeextensions.vercel.app/api/generate";
 
 // ── Storage key ───────────────────────────────────────────────
-// Only the resume is stored locally now. No API key on the client.
-const STORAGE_KEY_RESUME = "resumeai_base_resume";
+// Store only extracted plain text. Never store/send binary.
+// Requirement: save to chrome.storage.local with key `resumeText`.
+const STORAGE_KEY_RESUME_TEXT = "resumeText";
+// Legacy v2 key (base64 object). We no longer use it, but we remove it on reset/save.
+const LEGACY_STORAGE_KEY_RESUME = "resumeai_base_resume";
 
 // ── DOM — Onboarding screen ───────────────────────────────────
 const screenOnboarding = document.getElementById("screen-onboarding");
@@ -63,7 +66,7 @@ const btnReset      = document.getElementById("btnReset");
 const toast         = document.getElementById("toast");
 
 // ── State ─────────────────────────────────────────────────────
-let pickedFileText   = null;   // file content during onboarding
+let pickedResumeText = null;   // plain resume text during onboarding
 let scrapedJobText   = null;   // job description extracted from active tab
 let lastResult       = null;   // last Claude output (for copy/download)
 
@@ -76,7 +79,8 @@ const CLICK_DEBOUNCE_MS = 500;            // ignore clicks inside this window
 const CALL_COOLDOWN_MS  = 15_000;         // minimum gap between generate calls (15s)
 
 function updateGenerateButtonState() {
-  const hasResume = !!pickedFileText;
+  const hasResume =
+    typeof pickedResumeText === "string" && pickedResumeText.trim().length > 0;
   const hasJob =
     typeof scrapedJobText === "string" && scrapedJobText.trim().length >= 150;
   const canGenerate = hasResume && hasJob && !isCalling;
@@ -96,11 +100,14 @@ async function init() {
   btnDownload.disabled = true;
   lastResult = null;
 
-  const stored = await chrome.storage.local.get(STORAGE_KEY_RESUME);
+  const stored = await chrome.storage.local.get([
+    STORAGE_KEY_RESUME_TEXT,
+    LEGACY_STORAGE_KEY_RESUME,
+  ]);
 
-  if (stored[STORAGE_KEY_RESUME]) {
-    // Restore resume object into memory for this popup session.
-    pickedFileText = stored[STORAGE_KEY_RESUME];
+  if (typeof stored[STORAGE_KEY_RESUME_TEXT] === "string" && stored[STORAGE_KEY_RESUME_TEXT].trim()) {
+    // Restore plain resume text into memory for this popup session.
+    pickedResumeText = stored[STORAGE_KEY_RESUME_TEXT];
 
     showScreen("main");
     // Resume already saved from a previous session:
@@ -109,6 +116,10 @@ async function init() {
     showToast("Resume loaded \u2713", 1800);
     await autoScrapeJobDescription();
   } else {
+    // If legacy base64 resume exists, force re-upload (we no longer send binary).
+    if (stored[LEGACY_STORAGE_KEY_RESUME]) {
+      showToast("Please re-upload your resume (TXT recommended).", 2600);
+    }
     showScreen("onboarding");
   }
 
@@ -246,44 +257,131 @@ fileInput.addEventListener("change", () => {
   if (fileInput.files?.[0]) handleFilePicked(fileInput.files[0]);
 });
 
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
+function getFileExt(name) {
+  const idx = String(name || "").lastIndexOf(".");
+  return idx >= 0 ? String(name).slice(idx + 1).toLowerCase() : "";
 }
 
-// Read the picked file as binary and convert to base64
-function handleFilePicked(file) {
-  const reader = new FileReader();
+function normalizeExtractedText(text) {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
-  reader.onload = (e) => {
-    const base64String = arrayBufferToBase64(e.target.result);
-    pickedFileText = {
-      fileName: file.name,
-      fileType: file.type || "",
-      base64: base64String,
-    };
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read file as text."));
+    reader.readAsText(file);
+  });
+}
+
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not read file as binary."));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function extractPdfTextFromArrayBuffer(arrayBuffer) {
+  const pdfjsLib = globalThis.pdfjsLib;
+  if (!pdfjsLib?.getDocument) {
+    throw new Error("PDF reader not available.");
+  }
+
+  // Required for PDF.js when loaded from CDN.
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+  const pages = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+    const line = (content.items || [])
+      .map((it) => (it && typeof it.str === "string" ? it.str : ""))
+      .filter(Boolean)
+      .join(" ");
+    pages.push(line);
+  }
+
+  return pages.join("\n\n");
+}
+
+async function extractDocTextFromArrayBuffer(arrayBuffer) {
+  const mammoth = globalThis.mammoth;
+  if (!mammoth?.extractRawText) {
+    throw new Error("DOC/DOCX reader not available.");
+  }
+  const result = await mammoth.extractRawText({ arrayBuffer });
+  return result?.value || "";
+}
+
+async function extractTextFromFile(file) {
+  const ext = getFileExt(file?.name);
+
+  if (ext === "txt") {
+    return await readFileAsText(file);
+  }
+
+  if (ext === "pdf") {
+    const buf = await readFileAsArrayBuffer(file);
+    return await extractPdfTextFromArrayBuffer(buf);
+  }
+
+  if (ext === "doc" || ext === "docx") {
+    const buf = await readFileAsArrayBuffer(file);
+    return await extractDocTextFromArrayBuffer(buf);
+  }
+
+  throw new Error("Unsupported file type.");
+}
+
+// Read the picked file and extract plain text (never base64)
+async function handleFilePicked(file) {
+  clearSetupError();
+  pickedResumeText = null;
+  updateGenerateButtonState();
+
+  try {
+    const rawText = await extractTextFromFile(file);
+    const text = normalizeExtractedText(rawText);
+
+    if (!text) {
+      throw new Error("Empty extracted text.");
+    }
+
+    pickedResumeText = text;
+    // Persist immediately after successful extraction.
+    await chrome.storage.local.set({ [STORAGE_KEY_RESUME_TEXT]: text });
+    await chrome.storage.local.remove(LEGACY_STORAGE_KEY_RESUME);
+
     fileName.textContent = file.name;
     fileChosen.hidden = false;
-    clearSetupError();
     updateGenerateButtonState();
-  };
-
-  reader.onerror = () => {
-    showSetupError("Could not read the file. Please try a PDF, DOCX, or .txt export of your resume.");
-  };
-
-  reader.readAsArrayBuffer(file);
+  } catch (err) {
+    console.error("[ResumeAI][popup] Resume text extraction failed", err);
+    pickedResumeText = null;
+    fileChosen.hidden = true;
+    showSetupError(
+      "This file could not be read. Please try uploading a .txt version of your resume."
+    );
+    updateGenerateButtonState();
+  }
 }
 
 // Clear chosen file
-btnClearFile.addEventListener("click", () => {
-  pickedFileText  = null;
+btnClearFile.addEventListener("click", async () => {
+  pickedResumeText = null;
   fileInput.value = "";
   fileChosen.hidden = true;
+  await chrome.storage.local.remove(STORAGE_KEY_RESUME_TEXT);
   updateGenerateButtonState();
 });
 
@@ -292,17 +390,18 @@ btnSaveSetup.addEventListener("click", async () => {
   clearSetupError();
 
   if (
-    !pickedFileText ||
-    typeof pickedFileText.base64 !== "string" ||
-    pickedFileText.base64.trim().length === 0
+    typeof pickedResumeText !== "string" ||
+    pickedResumeText.trim().length === 0
   ) {
     return showSetupError("Please upload your resume file first.");
   }
 
-  // Persist resume object locally
+  // Persist plain extracted text locally
   await chrome.storage.local.set({
-    [STORAGE_KEY_RESUME]: pickedFileText,
+    [STORAGE_KEY_RESUME_TEXT]: pickedResumeText.trim(),
   });
+  // Ensure legacy binary payload is not kept around.
+  await chrome.storage.local.remove(LEGACY_STORAGE_KEY_RESUME);
 
   // Transition to main screen and immediately start scraping the
   // current page for a job description. Tailor remains disabled
@@ -362,21 +461,15 @@ btnGenerate.addEventListener("click", async () => {
 
   try {
     // ── Load saved resume ────────────────────────────────────
-    const stored = await chrome.storage.local.get(STORAGE_KEY_RESUME);
-    const baseResume = stored[STORAGE_KEY_RESUME];
+    const stored = await chrome.storage.local.get(STORAGE_KEY_RESUME_TEXT);
+    const baseResumeText = stored[STORAGE_KEY_RESUME_TEXT];
 
-    if (
-      !baseResume ||
-      typeof baseResume !== "object" ||
-      typeof baseResume.base64 !== "string" ||
-      !baseResume.base64 ||
-      typeof baseResume.fileName !== "string"
-    ) {
+    if (typeof baseResumeText !== "string" || !baseResumeText.trim()) {
       throw new Error("Saved resume is invalid. Please reset and upload your resume again.");
     }
 
-    // Keep in-memory copy in sync
-    pickedFileText = baseResume;
+    // Keep in-memory copy in sync (plain text)
+    pickedResumeText = baseResumeText;
 
     // ── Use scraped text — Tailor should only be reachable after
     // a successful scan that detected a job description.
@@ -394,7 +487,7 @@ btnGenerate.addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        resume:         baseResume,
+        resumeText:     baseResumeText.trim(),
         jobDescription: jobText.trim(),
       }),
     });
@@ -489,12 +582,12 @@ btnReset.addEventListener("click", async () => {
   );
   if (!confirmed) return;
 
-  await chrome.storage.local.remove(STORAGE_KEY_RESUME);
+  await chrome.storage.local.remove([STORAGE_KEY_RESUME_TEXT, LEGACY_STORAGE_KEY_RESUME]);
 
   // Reset all runtime state
   scrapedJobText = null;
   lastResult     = null;
-  pickedFileText = null;
+  pickedResumeText = null;
 
   btnCopy.disabled     = true;
   btnDownload.disabled = true;
