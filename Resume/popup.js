@@ -75,7 +75,9 @@ async function init() {
 
   if (stored[STORAGE_KEY_RESUME]) {
     showScreen("main");
-    // Auto-scrape immediately — no user action needed
+    // Resume already saved from a previous session:
+    // start with Tailor disabled, then scan the current page.
+    btnGenerate.disabled = true;
     await autoScrapeJobDescription();
   } else {
     showScreen("onboarding");
@@ -124,23 +126,43 @@ async function autoScrapeJobDescription() {
       files:  ["content.js"],
     });
 
-    const text = results?.[0]?.result ?? "";
+    const raw = results?.[0]?.result;
+
+    // Support both the new structured shape from content.js and
+    // older plain-string returns for backwards compatibility.
+    const payload = (raw && typeof raw === "object" && "isJobPage" in raw)
+      ? raw
+      : { isJobPage: true, text: typeof raw === "string" ? raw : "" };
+
+    if (!payload.isJobPage) {
+      scrapedJobText = null;
+      setExtractStatus(
+        "warn",
+        "⚠",
+        "No job description detected on this page. Please navigate to a job posting."
+      );
+      btnGenerate.disabled = true;
+      return;
+    }
+
+    const text = payload.text || "";
 
     if (text.length < 150) {
-      // content.js ran but didn't find enough text
-      setExtractStatus("warn",
+      setExtractStatus(
+        "warn",
         "⚠",
         "Couldn't extract enough text. Make sure you're on a job description page."
       );
-      // Don't lock the button — let the user try anyway
-      btnGenerate.disabled = false;
+      scrapedJobText = null;
+      btnGenerate.disabled = true;
       return;
     }
 
     // ── Success ─────────────────────────────────────────────────
     scrapedJobText = text;
     const wordCount = text.split(/\s+/).length;
-    setExtractStatus("success",
+    setExtractStatus(
+      "success",
       "✓",
       `Job description captured (${wordCount} words) — ready to tailor.`
     );
@@ -148,8 +170,9 @@ async function autoScrapeJobDescription() {
 
   } catch (err) {
     setExtractStatus("error", "✕", `Could not read page: ${err.message}`);
-    // Still enable the button so the user can retry after navigating
-    btnGenerate.disabled = false;
+    // On error we keep Tailor disabled until a successful scan.
+    scrapedJobText = null;
+    btnGenerate.disabled = true;
   }
 }
 
@@ -230,8 +253,11 @@ btnSaveSetup.addEventListener("click", async () => {
     [STORAGE_KEY_RESUME]: pickedFileText.trim(),
   });
 
-  // Transition to main screen and immediately start scraping
+  // Transition to main screen and immediately start scraping the
+  // current page for a job description. Tailor remains disabled
+  // until a valid job description is found.
   showScreen("main");
+  btnGenerate.disabled = true;
   await autoScrapeJobDescription();
 });
 
@@ -260,19 +286,13 @@ btnGenerate.addEventListener("click", async () => {
       throw new Error("No saved resume found. Please reset and upload your resume again.");
     }
 
-    // ── Use scraped text or re-scrape if missing ─────────────
-    let jobText = scrapedJobText;
-
-    if (!jobText || jobText.trim().length < 150) {
-      // Re-attempt a scrape in case the user navigated after opening
-      await autoScrapeJobDescription();
-      jobText = scrapedJobText;
-    }
+    // ── Use scraped text — Tailor should only be reachable after
+    // a successful scan that detected a job description.
+    const jobText = scrapedJobText;
 
     if (!jobText || jobText.trim().length < 150) {
       throw new Error(
-        "Not enough job description text found on this page. " +
-        "Navigate to a job posting page and try again."
+        "No job description detected on this page. Please navigate to a job posting and try again."
       );
     }
 

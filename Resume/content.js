@@ -18,6 +18,31 @@
 
 (function extractJobDescription() {
 
+  const KEY_PHRASES = [
+    "job description",
+    "responsibilities",
+    "requirements",
+    "qualifications",
+    "experience required",
+    "about the role",
+    "what you will do",
+  ];
+
+  function collapseWhitespace(str) {
+    return str
+      .replace(/\r\n/g, "\n")
+      .replace(/\t/g, " ")
+      .replace(/ {2,}/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  function pageLooksLikeJob(text) {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    return KEY_PHRASES.some((phrase) => lower.includes(phrase));
+  }
+
   // ── 1. TARGETED SELECTORS ──────────────────────────────────
   // Known containers on popular job boards. Listed in priority order.
   // We try each selector and take the first match with enough text.
@@ -55,6 +80,16 @@
   // Minimum character threshold — anything shorter is likely a nav link or stub
   const MIN_LENGTH = 200;
 
+  // ── 0. QUICK PAGE-LEVEL CHECK ─────────────────────────────────
+  const fullPageText = collapseWhitespace(document.body?.innerText || "");
+  if (!pageLooksLikeJob(fullPageText)) {
+    return {
+      isJobPage: false,
+      text: "",
+      reason: "no_job_keywords",
+    };
+  }
+
   // Try each selector; return the first element whose text is long enough
   for (const selector of KNOWN_SELECTORS) {
     const el = document.querySelector(selector);
@@ -62,7 +97,11 @@
 
     const text = collapseWhitespace(el.innerText || el.textContent || "");
     if (text.length >= MIN_LENGTH) {
-      return text;
+      return {
+        isJobPage: true,
+        text,
+        reason: "selector_match",
+      };
     }
   }
 
@@ -113,23 +152,29 @@
   }
 
   if (bestElement && bestLength >= MIN_LENGTH) {
-    return collapseWhitespace(bestElement.innerText || bestElement.textContent);
+    return {
+      isJobPage: true,
+      text: collapseWhitespace(bestElement.innerText || bestElement.textContent),
+      reason: "heuristic_block",
+    };
   }
 
   // ── 3. LAST RESORT ────────────────────────────────────────
   // Return the entire body text, heavily truncated.
   // Claude will still find the relevant parts but this is a weak signal.
-  const bodyText = collapseWhitespace(document.body.innerText || "");
-  return bodyText.slice(0, 8000);  // cap at 8k chars to stay within token limits
-
-  // ── Utility ───────────────────────────────────────────────
-  function collapseWhitespace(str) {
-    return str
-      .replace(/\r\n/g, "\n")       // normalise line endings
-      .replace(/\t/g, " ")           // tabs → spaces
-      .replace(/ {2,}/g, " ")        // collapse multiple spaces
-      .replace(/\n{3,}/g, "\n\n")   // max two consecutive newlines
-      .trim();
+  const bodyText = fullPageText;
+  if (!bodyText) {
+    return {
+      isJobPage: false,
+      text: "",
+      reason: "empty_body",
+    };
   }
+
+  return {
+    isJobPage: true,
+    text: bodyText.slice(0, 8000),  // cap at 8k chars to stay within token limits
+    reason: "full_body_fallback",
+  };
 
 })();
