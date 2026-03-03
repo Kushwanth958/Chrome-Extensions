@@ -644,6 +644,35 @@ btnDownload.addEventListener("click", () => {
   URL.revokeObjectURL(url);
   showToast("Download started ✓");
 });
+document.getElementById("downloadPDF").addEventListener("click", () => {
+  if (!lastResult) return;
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  const lines = doc.splitTextToSize(lastResult, 180);
+  doc.text(lines, 10, 10);
+
+  doc.save("ResumeNest_Resume.pdf");
+});
+
+document.getElementById("downloadDOC").addEventListener("click", () => {
+  if (!lastResult) return;
+
+  const blob = new Blob(
+    ["\ufeff" + lastResult],
+    { type: "application/msword" }
+  );
+
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "ResumeNest_Resume.doc";
+  a.click();
+
+  URL.revokeObjectURL(url);
+});
 
 // ── Reset: clear storage → back to onboarding ────────────────
 btnReset.addEventListener("click", async () => {

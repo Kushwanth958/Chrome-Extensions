@@ -21,6 +21,7 @@
   <!-- PDF/DOCX text extraction (used by popup.js) -->
   <!-- <script src="lib/pdf.js"></script>
   <script src="lib/mammoth.js"></script> -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 
 <body>
@@ -132,6 +133,8 @@
     </div>
 
     <!-- Bottom action bar -->
+    <button id="downloadPDF">Download PDF</button>
+    <button id="downloadDOC">Download DOCX</button>
     <div class="bottom-bar">
       <button class="btn-action" id="btnCopy" disabled>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
