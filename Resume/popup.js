@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 //  popup.js – ResumeAI v2
 //  ES module (type="module" set in popup.html).
 //
@@ -36,6 +36,9 @@ const BACKEND_URL = "https://chromeextensions.vercel.app/api/generate";
 const STORAGE_KEY_RESUME_TEXT = "resumeText";
 // Legacy v2 key (base64 object). We no longer use it, but we remove it on reset/save.
 const LEGACY_STORAGE_KEY_RESUME = "resumeai_base_resume";
+// Keys for persisting the last generate result across popup sessions.
+const STORAGE_KEY_LAST_RESUME = "lastTailoredResume";
+const STORAGE_KEY_LAST_ATS = "lastATSScore";
 
 // ── DOM — Onboarding screen ───────────────────────────────────
 const screenOnboarding = document.getElementById("screen-onboarding");
@@ -103,6 +106,8 @@ async function init() {
   const stored = await chrome.storage.local.get([
     STORAGE_KEY_RESUME_TEXT,
     LEGACY_STORAGE_KEY_RESUME,
+    STORAGE_KEY_LAST_RESUME,
+    STORAGE_KEY_LAST_ATS,
   ]);
 
   if (typeof stored[STORAGE_KEY_RESUME_TEXT] === "string" && stored[STORAGE_KEY_RESUME_TEXT].trim()) {
@@ -114,6 +119,20 @@ async function init() {
     // start with Tailor disabled, then scan the current page.
     updateGenerateButtonState();
     showToast("Resume loaded \u2713", 1800);
+
+    // -- Restore last generate result (if any) --
+    if (typeof stored[STORAGE_KEY_LAST_RESUME] === "string" && stored[STORAGE_KEY_LAST_RESUME]) {
+      lastResult = stored[STORAGE_KEY_LAST_RESUME];
+      renderResult(lastResult);
+      btnCopy.disabled = false;
+      btnDownload.disabled = false;
+      previewHint.textContent = "Claude-tailored \u00b7 ATS-ready";
+    }
+
+    if (stored[STORAGE_KEY_LAST_ATS] && typeof stored[STORAGE_KEY_LAST_ATS] === "object") {
+      renderATSScore(stored[STORAGE_KEY_LAST_ATS]);
+    }
+
     await autoScrapeJobDescription();
   } else {
     // If legacy base64 resume exists, force re-upload (we no longer send binary).
@@ -500,6 +519,7 @@ btnGenerate.addEventListener("click", async () => {
 
     const data = await response.json();
     const tailored = data?.tailoredResume;
+    const atsScore = data?.atsScore;
 
     if (!tailored) {
       throw new Error("The server returned an empty response. Please try again.");
@@ -508,6 +528,16 @@ btnGenerate.addEventListener("click", async () => {
     // ── Render the result ─────────────────────────────────────
     renderResult(tailored);
     lastResult = tailored;
+
+    if (atsScore && typeof atsScore === "object") {
+      renderATSScore(atsScore);
+    }
+
+    // ── Persist across popup sessions ─────────────────────────
+    chrome.storage.local.set({
+      [STORAGE_KEY_LAST_RESUME]: tailored,
+      [STORAGE_KEY_LAST_ATS]: atsScore ?? null,
+    });
 
     btnCopy.disabled = false;
     btnDownload.disabled = false;
@@ -550,6 +580,46 @@ function renderResult(text) {
   previewPanel.appendChild(pre);
 }
 
+// ── Render the ATS score block ───────────────────────────────
+// Appended below the resume preview. Score, matched/missing keywords, advice.
+function renderATSScore(score) {
+  // Remove any previous ATS block to prevent duplicates.
+  const existing = document.getElementById("ats-score-block");
+  if (existing) existing.remove();
+
+  const block = document.createElement("div");
+  block.id = "ats-score-block";
+  block.className = "ats-score-block";
+
+  const pct = Math.min(100, Math.max(0, Number(score.score) || 0));
+  const matchedList = Array.isArray(score.matchedKeywords) ? score.matchedKeywords : [];
+  const missingList = Array.isArray(score.missingKeywords) ? score.missingKeywords : [];
+
+  block.innerHTML = `
+    <div class="ats-header">
+      <span class="ats-label">ATS Score</span>
+      <span class="ats-score-value">${pct}<span class="ats-score-unit">/100</span></span>
+    </div>
+    <div class="ats-bar-track"><div class="ats-bar-fill" style="width:${pct}%"></div></div>
+    ${matchedList.length
+      ? `<p class="ats-section-label">✓ Matched keywords</p>
+           <p class="ats-keywords ats-matched">${matchedList.join(", ")}</p>`
+      : ""
+    }
+    ${missingList.length
+      ? `<p class="ats-section-label">✗ Missing keywords</p>
+           <p class="ats-keywords ats-missing">${missingList.join(", ")}</p>`
+      : ""
+    }
+    ${score.advice
+      ? `<p class="ats-advice">💡 ${score.advice}</p>`
+      : ""
+    }
+  `;
+
+  previewPanel.appendChild(block);
+}
+
 // ── Copy ──────────────────────────────────────────────────────
 btnCopy.addEventListener("click", async () => {
   if (!lastResult) return;
@@ -582,7 +652,12 @@ btnReset.addEventListener("click", async () => {
   );
   if (!confirmed) return;
 
-  await chrome.storage.local.remove([STORAGE_KEY_RESUME_TEXT, LEGACY_STORAGE_KEY_RESUME]);
+  await chrome.storage.local.remove([
+    STORAGE_KEY_RESUME_TEXT,
+    LEGACY_STORAGE_KEY_RESUME,
+    STORAGE_KEY_LAST_RESUME,
+    STORAGE_KEY_LAST_ATS,
+  ]);
 
   // Reset all runtime state
   scrapedJobText = null;
