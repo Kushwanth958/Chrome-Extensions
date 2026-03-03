@@ -141,7 +141,15 @@ LICENSES & CERTIFICATIONS (if applicable)
 
 EDUCATION
 
-9. FORMAT RULES:
+9. EVIDENCE-BASED SKILLS:
+Skills must not be listed as isolated keywords. Every skill must be clearly supported by demonstrated experience in the Experience section. The Skills section must only reflect capabilities that are evidenced in the candidate’s work history.
+
+10. NO UNSUPPORTED KEYWORDS:
+If a job description mentions a skill that cannot be supported by the candidate’s original resume, do not include it. Never fabricate, stretch, or imply unsupported experience.
+
+11. INTERVIEWER VALIDATION TEST:
+Before finalizing output, internally verify that if an interviewer asked the candidate to elaborate on every listed skill or bullet point, the candidate could confidently answer based solely on their original resume experience. If not, remove or revise it.
+12. FORMAT RULES:
 - Use plain text only.
 - No markdown.
 - No JSON.
@@ -149,7 +157,7 @@ EDUCATION
 - No commentary before or after the resume.
 - No explanations.
 
-10. FINAL CHECK:
+13. FINAL CHECK:
 The final resume must read as if it was specifically written for THIS exact job — not as a generic resume rewrite.`;
 
   const userPrompt =
