@@ -39,44 +39,44 @@ const LEGACY_STORAGE_KEY_RESUME = "resumeai_base_resume";
 
 // ── DOM — Onboarding screen ───────────────────────────────────
 const screenOnboarding = document.getElementById("screen-onboarding");
-const dropZone         = document.getElementById("dropZone");
-const fileInput        = document.getElementById("fileInput");
-const fileChosen       = document.getElementById("fileChosen");
-const fileName         = document.getElementById("fileName");
-const btnClearFile     = document.getElementById("btnClearFile");
-const btnSaveSetup     = document.getElementById("btnSaveSetup");
-const setupError       = document.getElementById("setupError");
+const dropZone = document.getElementById("dropZone");
+const fileInput = document.getElementById("fileInput");
+const fileChosen = document.getElementById("fileChosen");
+const fileName = document.getElementById("fileName");
+const btnClearFile = document.getElementById("btnClearFile");
+const btnSaveSetup = document.getElementById("btnSaveSetup");
+const setupError = document.getElementById("setupError");
 
 // ── DOM — Main screen ─────────────────────────────────────────
-const screenMain    = document.getElementById("screen-main");
-const jobUrl        = document.getElementById("jobUrl");
+const screenMain = document.getElementById("screen-main");
+const jobUrl = document.getElementById("jobUrl");
 const extractStatus = document.getElementById("extractStatus");
-const extractIcon   = document.getElementById("extractIcon");
-const extractText   = document.getElementById("extractText");
-const btnGenerate   = document.getElementById("btnGenerate");
-const genIdle       = btnGenerate.querySelector(".gen-idle");
-const genLoading    = btnGenerate.querySelector(".gen-loading");
-const errorBanner   = document.getElementById("errorBanner");
-const errorMsg      = document.getElementById("errorMsg");
-const previewPanel  = document.getElementById("previewPanel");
-const previewHint   = document.getElementById("previewHint");
-const btnCopy       = document.getElementById("btnCopy");
-const btnDownload   = document.getElementById("btnDownload");
-const btnReset      = document.getElementById("btnReset");
-const toast         = document.getElementById("toast");
+const extractIcon = document.getElementById("extractIcon");
+const extractText = document.getElementById("extractText");
+const btnGenerate = document.getElementById("btnGenerate");
+const genIdle = btnGenerate.querySelector(".gen-idle");
+const genLoading = btnGenerate.querySelector(".gen-loading");
+const errorBanner = document.getElementById("errorBanner");
+const errorMsg = document.getElementById("errorMsg");
+const previewPanel = document.getElementById("previewPanel");
+const previewHint = document.getElementById("previewHint");
+const btnCopy = document.getElementById("btnCopy");
+const btnDownload = document.getElementById("btnDownload");
+const btnReset = document.getElementById("btnReset");
+const toast = document.getElementById("toast");
 
 // ── State ─────────────────────────────────────────────────────
 let pickedResumeText = null;   // plain resume text during onboarding
-let scrapedJobText   = null;   // job description extracted from active tab
-let lastResult       = null;   // last Claude output (for copy/download)
+let scrapedJobText = null;   // job description extracted from active tab
+let lastResult = null;   // last Claude output (for copy/download)
 
 // Gemini / backend call protections
-let isCalling          = false;           // true while a generate call is in flight
-let lastCallTimestamp  = 0;               // ms since epoch when the last call started
+let isCalling = false;           // true while a generate call is in flight
+let lastCallTimestamp = 0;               // ms since epoch when the last call started
 let lastClickTimestamp = 0;               // for debounce of rapid clicks
 
 const CLICK_DEBOUNCE_MS = 500;            // ignore clicks inside this window
-const CALL_COOLDOWN_MS  = 15_000;         // minimum gap between generate calls (15s)
+const CALL_COOLDOWN_MS = 15_000;         // minimum gap between generate calls (15s)
 
 function updateGenerateButtonState() {
   const hasResume =
@@ -129,11 +129,11 @@ async function init() {
 // ── Screen switcher ───────────────────────────────────────────
 function showScreen(name) {
   if (name === "onboarding") {
-    screenMain.hidden       = true;
+    screenMain.hidden = true;
     screenOnboarding.hidden = false;
   } else {
     screenOnboarding.hidden = true;
-    screenMain.hidden       = false;
+    screenMain.hidden = false;
   }
 }
 
@@ -165,7 +165,7 @@ async function autoScrapeJobDescription() {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: false },
-      files:  ["content.js"],
+      files: ["content.js"],
     });
 
     const raw = results?.[0]?.result;
@@ -223,8 +223,8 @@ async function autoScrapeJobDescription() {
 function setExtractStatus(state, icon, text) {
   extractStatus.className = "extract-status";   // reset modifiers
   if (state === "success") extractStatus.classList.add("is-success");
-  if (state === "warn")    extractStatus.classList.add("is-warn");
-  if (state === "error")   extractStatus.classList.add("is-error");
+  if (state === "warn") extractStatus.classList.add("is-warn");
+  if (state === "error") extractStatus.classList.add("is-error");
 
   extractIcon.textContent = icon;
   extractText.textContent = text;
@@ -294,9 +294,9 @@ async function extractPdfTextFromArrayBuffer(arrayBuffer) {
     throw new Error("PDF reader not available.");
   }
 
-  // Required for PDF.js when loaded from CDN.
+  // Required for PDF.js — point to the local bundled worker.
   pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    chrome.runtime.getURL("lib/pdf.worker.js");
 
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
   const pages = [];
@@ -487,7 +487,7 @@ btnGenerate.addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        resumeText:     baseResumeText.trim(),
+        resumeText: baseResumeText.trim(),
         jobDescription: jobText.trim(),
       }),
     });
@@ -509,7 +509,7 @@ btnGenerate.addEventListener("click", async () => {
     renderResult(tailored);
     lastResult = tailored;
 
-    btnCopy.disabled     = false;
+    btnCopy.disabled = false;
     btnDownload.disabled = false;
     previewHint.textContent = "Claude-tailored · ATS-ready";
 
@@ -539,7 +539,7 @@ function renderResult(text) {
   lines.forEach((line, i) => {
     if (SECTION_HEADINGS.test(line.trim())) {
       const span = document.createElement("span");
-      span.className   = "section-heading";
+      span.className = "section-heading";
       span.textContent = line.trim().toUpperCase();
       pre.appendChild(span);
     } else {
@@ -566,9 +566,9 @@ btnDownload.addEventListener("click", () => {
   if (!lastResult) return;
 
   const blob = new Blob([lastResult], { type: "text/plain" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
   a.download = "tailored-resume.txt";
   a.click();
   URL.revokeObjectURL(url);
@@ -586,10 +586,10 @@ btnReset.addEventListener("click", async () => {
 
   // Reset all runtime state
   scrapedJobText = null;
-  lastResult     = null;
+  lastResult = null;
   pickedResumeText = null;
 
-  btnCopy.disabled     = true;
+  btnCopy.disabled = true;
   btnDownload.disabled = true;
   previewPanel.innerHTML = `
     <div class="preview-placeholder">
@@ -604,18 +604,18 @@ btnReset.addEventListener("click", async () => {
 
 // ── UI state helpers ──────────────────────────────────────────
 function setGenerating(on) {
-  genIdle.hidden       = on;
-  genLoading.hidden    = !on;
+  genIdle.hidden = on;
+  genLoading.hidden = !on;
   updateGenerateButtonState();
 }
 
 function showError(msg) {
   errorMsg.textContent = msg;
-  errorBanner.hidden   = false;
+  errorBanner.hidden = false;
 }
 
 function hideError() {
-  errorBanner.hidden   = true;
+  errorBanner.hidden = true;
   errorMsg.textContent = "";
 }
 
