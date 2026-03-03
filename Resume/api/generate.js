@@ -149,7 +149,11 @@ If a job description mentions a skill that cannot be supported by the candidateâ
 
 11. INTERVIEWER VALIDATION TEST:
 Before finalizing output, internally verify that if an interviewer asked the candidate to elaborate on every listed skill or bullet point, the candidate could confidently answer based solely on their original resume experience. If not, remove or revise it.
-12. FORMAT RULES:
+
+12. ATS OPTIMIZATION REQUIREMENT:
+Ensure all critical job description terminology appears naturally in the resume when supported by experience. Use exact phrasing for required tools, systems, and technical skills to maximize ATS matching probability.
+
+13. FORMAT RULES:
 - Use plain text only.
 - No markdown.
 - No JSON.
@@ -157,7 +161,7 @@ Before finalizing output, internally verify that if an interviewer asked the can
 - No commentary before or after the resume.
 - No explanations.
 
-13. FINAL CHECK:
+14. FINAL CHECK:
 The final resume must read as if it was specifically written for THIS exact job â€” not as a generic resume rewrite.`;
 
   const userPrompt =
