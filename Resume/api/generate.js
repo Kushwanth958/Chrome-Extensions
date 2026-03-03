@@ -27,7 +27,7 @@
 // ── Constants ─────────────────────────────────────────────────
 const ANTHROPIC_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MAX_TOKENS = 2048;
+const MAX_TOKENS = 2800;
 
 // ── Job description cleaner ───────────────────────────────────
 function trimJobDescription(text) {
@@ -153,15 +153,32 @@ Before finalizing output, internally verify that if an interviewer asked the can
 12. ATS OPTIMIZATION REQUIREMENT:
 Ensure all critical job description terminology appears naturally in the resume when supported by experience. Use exact phrasing for required tools, systems, and technical skills to maximize ATS matching probability.
 
-13. FORMAT RULES:
+13. ATS SCORING OUTPUT REQUIREMENT:
+After generating the full tailored resume, append exactly:
+
+ATS_SCORE_JSON:
+{
+  "score": integer 0-100,
+  "matchedKeywords": array of strings,
+  "missingKeywords": array of strings,
+  "advice": one concise improvement sentence
+}
+
+Rules for the ATS block:
+- Output the complete resume first.
+- Then output ATS_SCORE_JSON on a new line.
+- The JSON must be valid.
+- No markdown, no extra commentary.
+
+14. FORMAT RULES:
 - Use plain text only.
 - No markdown.
-- No JSON.
+- No JSON in the resume body.
 - Use hyphen (-) for bullet points.
-- No commentary before or after the resume.
+- No commentary before or after the resume (the ATS_SCORE_JSON block is the only permitted addition after the resume).
 - No explanations.
 
-14. FINAL CHECK:
+15. FINAL CHECK:
 The final resume must read as if it was specifically written for THIS exact job — not as a generic resume rewrite.`;
 
   const userPrompt =
@@ -208,7 +225,7 @@ The final resume must read as if it was specifically written for THIS exact job 
     return res.status(502).json({ error: `Anthropic API error: ${detail}` });
   }
 
-  // ── Extract plain-text response ──────────────────────────────
+  // ── Extract and split Claude's response ─────────────────────
   const claudeData = await claudeResponse.json();
   const responseText = claudeData?.content?.[0]?.text?.trim();
 
@@ -217,5 +234,25 @@ The final resume must read as if it was specifically written for THIS exact job 
     return res.status(502).json({ error: "Claude returned an empty response. Please try again." });
   }
 
-  return res.status(200).json({ tailoredResume: responseText });
+  // ── Split resume body from ATS score block ───────────────────
+  const ATS_DELIMITER = "ATS_SCORE_JSON:";
+  const delimiterIndex = responseText.indexOf(ATS_DELIMITER);
+
+  if (delimiterIndex === -1) {
+    console.error("[ResumeAI] ATS_SCORE_JSON block missing from Claude response.");
+    return res.status(502).json({ error: "ATS scoring block missing from Claude response. Please try again." });
+  }
+
+  const tailoredResume = responseText.slice(0, delimiterIndex).trim();
+  const rawAtsJson = responseText.slice(delimiterIndex + ATS_DELIMITER.length).trim();
+
+  let atsScore;
+  try {
+    atsScore = JSON.parse(rawAtsJson);
+  } catch (parseErr) {
+    console.error("[ResumeAI] Failed to parse ATS_SCORE_JSON:", rawAtsJson);
+    return res.status(502).json({ error: "ATS score JSON is invalid. Please try again." });
+  }
+
+  return res.status(200).json({ tailoredResume, atsScore });
 }
