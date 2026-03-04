@@ -582,6 +582,25 @@ function renderResult(text) {
 
 // ── Render the ATS score block ───────────────────────────────
 // Appended below the resume preview. Score, matched/missing keywords, advice.
+function renderATSScore(data) {
+
+  const container = document.getElementById("atsContainer");
+  const scoreEl = document.getElementById("atsScoreValue");
+  const matchedEl = document.getElementById("matchedKeywords");
+  const missingEl = document.getElementById("missingKeywords");
+
+  container.classList.remove("hidden");
+
+  scoreEl.textContent = `ATS Score: ${data.score}/100`;
+
+  matchedEl.innerHTML = data.matched
+    .map(k => `<span class="keyword matched">${k}</span>`)
+    .join(", ");
+
+  missingEl.innerHTML = data.missing
+    .map(k => `<span class="keyword missing">${k}</span>`)
+    .join(", ");
+}
 function renderATSScore(score) {
   // Remove any previous ATS block to prevent duplicates.
   const existing = document.getElementById("ats-score-block");

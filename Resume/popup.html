@@ -134,6 +134,20 @@
         </div>
       </div>
     </div>
+    <div id="atsContainer" class="ats-box hidden">
+      <h3>ATS Score</h3>
+      <div id="atsScoreValue"></div>
+
+      <div class="ats-section">
+        <strong>✓ Matched keywords</strong>
+        <div id="matchedKeywords"></div>
+      </div>
+
+      <div class="ats-section">
+        <strong>✗ Missing keywords</strong>
+        <div id="missingKeywords"></div>
+      </div>
+    </div>
 
     <!-- Bottom action bar -->
     <div class="bottom-bar">
@@ -154,6 +168,7 @@
         </svg>
         TXT
       </button>
+
       <button class="btn-action" id="downloadPDF" disabled>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
           stroke-linejoin="round">
@@ -164,6 +179,7 @@
         </svg>
         Download PDF
       </button>
+
       <button class="btn-action" id="downloadDOC" disabled>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
           stroke-linejoin="round">
