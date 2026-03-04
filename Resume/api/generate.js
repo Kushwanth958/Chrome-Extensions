@@ -1,15 +1,15 @@
 // ============================================================
-//  api/generate.js – ResumeAI Vercel Serverless Function
+//  api/generate.js – ResumeNest Vercel Serverless Function
 //
 //  Deployed to Vercel as a Node.js serverless function.
 //  Route: POST /api/generate
 //
 //  Responsibilities:
 //    1. Validate the incoming request body (resumeText + jobDescription).
-//    2. Call the Anthropic Claude API using the ANTHROPIC_API_KEY
+//    2. Check SHA-256 cache — return cached result if available.
+//    3. Call the Anthropic Claude API using the ANTHROPIC_API_KEY
 //       environment variable set securely in the Vercel dashboard.
-//    3. Return the tailored resume as plain text wrapped in JSON:
-//       { tailoredResume: "..." }
+//    4. Cache the result (24-hour TTL) and return it.
 //
 //  The API key is NEVER exposed to the client. The extension only
 //  ever talks to this endpoint, not to Anthropic directly.
@@ -24,10 +24,46 @@
 //    - The function runs on Node.js 18.x runtime by default.
 // ============================================================
 
+import crypto from "crypto";
+
 // ── Constants ─────────────────────────────────────────────────
 const ANTHROPIC_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const MAX_TOKENS = 2800;
+
+// ── In-memory response cache (survives Vercel warm starts) ───
+// Key: SHA-256 hash of (resumeText + jobDescription)
+// Value: { data, expiresAt }
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const cache = new Map();
+
+function getCacheKey(resume, jobDesc) {
+  return crypto
+    .createHash("sha256")
+    .update(resume + jobDesc)
+    .digest("hex");
+}
+
+function getCachedResult(key) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedResult(key, data) {
+  // Evict expired entries periodically to prevent memory leaks
+  if (cache.size > 200) {
+    const now = Date.now();
+    for (const [k, v] of cache) {
+      if (now > v.expiresAt) cache.delete(k);
+    }
+  }
+  cache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
 
 // ── Job description cleaner ───────────────────────────────────
 function trimJobDescription(text) {
@@ -73,10 +109,18 @@ export default async function handler(req, res) {
   const safeResumeText = resumeText.trim().slice(0, 8000);
   const cleanedJobDescription = trimJobDescription(jobDescription);
 
+  // ── Check cache before calling Claude ────────────────────────
+  const cacheKey = getCacheKey(safeResumeText, cleanedJobDescription);
+  const cached = getCachedResult(cacheKey);
+  if (cached) {
+    console.log("[ResumeNest] Cache hit — returning cached result.");
+    return res.status(200).json({ ...cached, cached: true });
+  }
+
   // ── Verify the server-side API key ──────────────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.error("[ResumeAI] ANTHROPIC_API_KEY is not set.");
+    console.error("[ResumeNest] ANTHROPIC_API_KEY is not set.");
     return res.status(500).json({ error: "Server configuration error. API key not set." });
   }
 
@@ -213,7 +257,7 @@ The final resume must read as if it was specifically written for THIS exact job 
       }),
     });
   } catch (networkErr) {
-    console.error("[ResumeAI] Network error calling Anthropic:", networkErr);
+    console.error("[ResumeNest] Network error calling Anthropic:", networkErr);
     return res.status(502).json({ error: "Could not reach the Anthropic API. Please try again." });
   }
 
@@ -221,7 +265,7 @@ The final resume must read as if it was specifically written for THIS exact job 
   if (!claudeResponse.ok) {
     const errorBody = await claudeResponse.json().catch(() => ({}));
     const detail = errorBody?.error?.message || `HTTP ${claudeResponse.status}`;
-    console.error("[ResumeAI] Anthropic API error:", detail);
+    console.error("[ResumeNest] Anthropic API error:", detail);
     return res.status(502).json({ error: `Anthropic API error: ${detail}` });
   }
 
@@ -230,7 +274,7 @@ The final resume must read as if it was specifically written for THIS exact job 
   const responseText = claudeData?.content?.[0]?.text?.trim();
 
   if (!responseText) {
-    console.error("[ResumeAI] Claude returned empty content:", claudeData);
+    console.error("[ResumeNest] Claude returned empty content:", claudeData);
     return res.status(502).json({ error: "Claude returned an empty response. Please try again." });
   }
 
@@ -239,7 +283,7 @@ The final resume must read as if it was specifically written for THIS exact job 
   const delimiterIndex = responseText.indexOf(ATS_DELIMITER);
 
   if (delimiterIndex === -1) {
-    console.error("[ResumeAI] ATS_SCORE_JSON block missing from Claude response.");
+    console.error("[ResumeNest] ATS_SCORE_JSON block missing from Claude response.");
     return res.status(502).json({ error: "ATS scoring block missing from Claude response. Please try again." });
   }
 
@@ -250,9 +294,14 @@ The final resume must read as if it was specifically written for THIS exact job 
   try {
     atsScore = JSON.parse(rawAtsJson);
   } catch (parseErr) {
-    console.error("[ResumeAI] Failed to parse ATS_SCORE_JSON:", rawAtsJson);
+    console.error("[ResumeNest] Failed to parse ATS_SCORE_JSON:", rawAtsJson);
     return res.status(502).json({ error: "ATS score JSON is invalid. Please try again." });
   }
 
-  return res.status(200).json({ tailoredResume, atsScore });
+  // ── Cache the successful result ──────────────────────────────
+  const result = { tailoredResume, atsScore };
+  setCachedResult(cacheKey, result);
+  console.log("[ResumeNest] Result cached. Cache size:", cache.size);
+
+  return res.status(200).json(result);
 }

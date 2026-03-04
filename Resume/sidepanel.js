@@ -117,6 +117,8 @@ async function init() {
             renderResult(lastResult);
             btnCopy.disabled = false;
             btnDownload.disabled = false;
+            document.getElementById("downloadPDF").disabled = false;
+            document.getElementById("downloadDOC").disabled = false;
             previewHint.textContent = "Claude-tailored · ATS-ready";
         }
 
@@ -603,6 +605,8 @@ btnGenerate.addEventListener("click", async () => {
 
         btnCopy.disabled = false;
         btnDownload.disabled = false;
+        document.getElementById("downloadPDF").disabled = false;
+        document.getElementById("downloadDOC").disabled = false;
         previewHint.textContent = "Claude-tailored · ATS-ready";
 
     } catch (err) {
@@ -1049,6 +1053,8 @@ btnReset.addEventListener("click", async () => {
 
     btnCopy.disabled = true;
     btnDownload.disabled = true;
+    document.getElementById("downloadPDF").disabled = true;
+    document.getElementById("downloadDOC").disabled = true;
     previewPanel.innerHTML = `
     <div class="preview-placeholder">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
@@ -1095,3 +1101,15 @@ function showToast(msg, ms = 2500) {
 
 // ── Boot ──────────────────────────────────────────────────────
 init();
+
+// ── SPA Navigation Listener ──────────────────────────────────
+// content.js polls for URL changes on LinkedIn and other SPAs.
+// When it detects a navigation (e.g. user clicked a different job),
+// it sends a "jobPageChanged" message. We re-scrape automatically.
+chrome.runtime.onMessage.addListener((message) => {
+    if (message.action === "jobPageChanged") {
+        console.log("[ResumeNest] SPA navigation detected, re-scraping:", message.url);
+        showToast("New job detected — re-scanning…", 2000);
+        autoScrapeJobDescription();
+    }
+});

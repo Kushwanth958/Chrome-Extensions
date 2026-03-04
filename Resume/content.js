@@ -1,5 +1,5 @@
 // ============================================================
-//  content.js – Resume AI Copilot
+//  content.js – ResumeNest
 //
 //  Injected on-demand into the active tab by sidepanel.js via
 //  chrome.scripting.executeScript when the panel requests a read.
@@ -9,9 +9,9 @@
 //  Strategy:
 //    1. Wait for dynamic content to load (MutationObserver + timeout).
 //    2. Try known job-board CSS selectors first (fast, precise).
-//    3. Fall back to a heuristic that finds the largest block of
-//       prose text on the page (works on any site).
-//    4. Clean and return the text so sidepanel.js can pass it to Claude.
+//    3. Try generic career-page selectors (company sites).
+//    4. Fall back to largest text block heuristic.
+//    5. Last resort: extract and clean document.body.innerText.
 //
 //  Return value: { isJobPage, text, reason }
 //  chrome.scripting.executeScript captures the resolved value of
@@ -20,7 +20,7 @@
 
 (async function extractJobDescription() {
 
-  console.log("[Resume AI Copilot][content] Extracting job description from DOM (with dynamic wait).");
+  console.log("[ResumeNest][content] Extracting job description from DOM (with dynamic wait).");
 
   // ── Config ──────────────────────────────────────────────────
   const MIN_LENGTH = 200;
@@ -91,14 +91,38 @@
     // ─── iCIMS ───
     ".iCIMS_JobContent",
 
-    // ─── Generic fallbacks ───
+    // ─── Cisco / Phenom ───
+    ".job-description",
+    ".job-details",
+    "[class*='job-detail']",
+    "[class*='jobDetail']",
+
+    // ─── Amazon / generic ATS ───
+    ".jobDetailBody",
+    ".job-detail-body",
+    "#job-detail",
+    "#jobDetail",
+
+    // ─── Attribute-based fuzzy matches ───
     "[class*='job-description']",
     "[class*='jobDescription']",
     "[class*='job_description']",
     "[id*='job-description']",
     "[id*='jobDescription']",
-    "article",
+
+    // ─── Generic career page selectors ───
+    // These catch company career sites (Cisco, Amazon, Workday, etc.)
+    // that use standard semantic elements or common class names.
     "main",
+    "[role='main']",
+    "article",
+    ".job-description",
+    ".jobDescription",
+    ".job-description-content",
+    ".jobDescriptionContent",
+    ".content",
+    "#job-description",
+    "#jobDescription",
   ];
 
   // ── Priority selectors (sites with dynamic rendering) ──────
@@ -115,16 +139,24 @@
     "#content .job__description",
     // Lever
     ".posting-description",
+    // Workday
+    "[data-automation-id='jobPostingDescription']",
+    // Generic
+    ".job-description",
+    ".jobDescription",
   ];
 
   // ── Helpers ─────────────────────────────────────────────────
 
-  function collapseWhitespace(str) {
+  /** Clean extracted text: collapse whitespace, multiple newlines, trim */
+  function cleanText(str) {
     return str
-      .replace(/\r\n/g, "\n")
-      .replace(/\t/g, " ")
-      .replace(/ {2,}/g, " ")
-      .replace(/\n{3,}/g, "\n\n")
+      .replace(/\r\n/g, "\n")          // normalize line endings
+      .replace(/\t/g, " ")             // tabs → spaces
+      .replace(/ {2,}/g, " ")          // collapse multiple spaces
+      .replace(/\n{3,}/g, "\n\n")      // collapse 3+ newlines → 2
+      .replace(/^\s+|\s+$/gm, "")      // trim each line
+      .replace(/\n{3,}/g, "\n\n")      // re-collapse after line trim
       .trim();
   }
 
@@ -139,7 +171,7 @@
       try {
         const el = document.querySelector(selector);
         if (!el) continue;
-        const text = collapseWhitespace(el.innerText || el.textContent || "");
+        const text = cleanText(el.innerText || el.textContent || "");
         if (text.length >= MIN_LENGTH) {
           return { el, text, selector };
         }
@@ -172,6 +204,9 @@
     hostname.includes("successfactors.com") ||
     hostname.includes("jobvite.com") ||
     hostname.includes("recruiting.ultipro.com") ||
+    hostname.includes("phenom.com") ||
+    hostname.includes("cisco.com") ||
+    hostname.includes("amazon.jobs") ||
     // Company career subdomains (e.g. careers.google.com, jobs.netflix.com)
     hostname.startsWith("careers.") ||
     hostname.startsWith("jobs.") ||
@@ -190,10 +225,11 @@
   // selector checks, and only do the keyword fallback at the very end.
   if (!isKnownJobSite) {
     // Quick sanity check on immediately-visible text only — don't bail yet
-    const quickText = collapseWhitespace(document.body?.innerText || "");
+    const quickText = cleanText(document.body?.innerText || "");
     const quickLooksLikeJob = pageLooksLikeJob(quickText);
     // If neither URL nor visible text suggests a job page, bail early
     if (!quickLooksLikeJob) {
+      console.log("[ResumeNest][content] Not a job page (no keywords, no known URL pattern).");
       return {
         isJobPage: false,
         text: "",
@@ -206,7 +242,8 @@
   // Try selectors right away — works on static pages.
   const immediateMatch = trySelectors(KNOWN_SELECTORS);
   if (immediateMatch) {
-    console.log(`[Resume AI Copilot][content] Matched selector: ${immediateMatch.selector} (${immediateMatch.text.length} chars)`);
+    console.log("[ResumeNest][content] Matched selector:", immediateMatch.selector);
+    console.log("[ResumeNest] Extracted job text length:", immediateMatch.text.length);
     return {
       isJobPage: true,
       text: immediateMatch.text,
@@ -218,7 +255,7 @@
   // LinkedIn and other React-based sites load job descriptions
   // after the initial DOM render. We observe DOM mutations and
   // poll for our target selectors.
-  console.log("[Resume AI Copilot][content] No immediate match — waiting for dynamic content…");
+  console.log("[ResumeNest][content] No immediate match — waiting for dynamic content…");
 
   const dynamicResult = await new Promise((resolve) => {
     let resolved = false;
@@ -237,7 +274,7 @@
       // Try priority dynamic selectors first
       const dynamicMatch = trySelectors(DYNAMIC_SELECTORS);
       if (dynamicMatch) {
-        console.log(`[Resume AI Copilot][content] Dynamic match: ${dynamicMatch.selector} (${dynamicMatch.text.length} chars)`);
+        console.log("[ResumeNest][content] Dynamic match:", dynamicMatch.selector, `(${dynamicMatch.text.length} chars)`);
         finish({
           isJobPage: true,
           text: dynamicMatch.text,
@@ -249,7 +286,7 @@
       // Then try all selectors
       const allMatch = trySelectors(KNOWN_SELECTORS);
       if (allMatch) {
-        console.log(`[Resume AI Copilot][content] Delayed selector match: ${allMatch.selector} (${allMatch.text.length} chars)`);
+        console.log("[ResumeNest][content] Delayed selector match:", allMatch.selector, `(${allMatch.text.length} chars)`);
         finish({
           isJobPage: true,
           text: allMatch.text,
@@ -262,7 +299,7 @@
     const observer = new MutationObserver(() => {
       const match = trySelectors(DYNAMIC_SELECTORS);
       if (match) {
-        console.log(`[Resume AI Copilot][content] Observer match: ${match.selector} (${match.text.length} chars)`);
+        console.log("[ResumeNest][content] Observer match:", match.selector, `(${match.text.length} chars)`);
         finish({
           isJobPage: true,
           text: match.text,
@@ -278,65 +315,105 @@
 
     // Timeout fallback — don't wait forever
     const timeoutTimer = setTimeout(() => {
-      console.log("[Resume AI Copilot][content] Dynamic wait timed out after", MAX_WAIT_MS, "ms");
+      console.log("[ResumeNest][content] Dynamic wait timed out after", MAX_WAIT_MS, "ms");
       finish(null); // null = no dynamic match found
     }, MAX_WAIT_MS);
   });
 
   if (dynamicResult) {
+    console.log("[ResumeNest] Extracted job text length:", dynamicResult.text.length);
     return dynamicResult;
   }
 
-  // ── 3. HEURISTIC FALLBACK ──────────────────────────────────
-  // Walk every block-level element and score by text length.
-  // The longest prose block is most likely the job description.
-  console.log("[Resume AI Copilot][content] Falling back to heuristic block detection.");
+  // ── 3. LARGEST TEXT BLOCK FALLBACK ──────────────────────────
+  // When selectors fail (e.g. job boards changed their DOM),
+  // find the largest meaningful block of text on the page.
+  // This is resilient to DOM structure changes.
+  console.log("[ResumeNest][content] Falling back to largest text block detection.");
 
-  const BLOCK_TAGS = new Set([
-    "DIV", "SECTION", "ARTICLE", "MAIN",
-    "P", "UL", "OL", "TABLE"
-  ]);
+  // Tags whose content we never want
+  const SKIP_ANCESTOR_TAGS = new Set(["NAV", "FOOTER", "HEADER", "ASIDE"]);
 
-  const SKIP_TAGS = new Set([
-    "SCRIPT", "STYLE", "NOSCRIPT", "IFRAME",
-    "HEADER", "FOOTER", "NAV", "ASIDE", "FORM"
-  ]);
+  // Words that signal boilerplate / non-job content
+  const BOILERPLATE_WORDS = ["cookie", "privacy", "terms", "sign up", "sign in", "log in", "subscribe"];
 
-  let bestElement = null;
-  let bestLength = 0;
-
-  const candidates = document.querySelectorAll(
-    "div, section, article, main"
-  );
-
-  for (const el of candidates) {
-    const style = window.getComputedStyle(el);
-    if (style.display === "none" || style.visibility === "hidden") continue;
-    if (SKIP_TAGS.has(el.tagName)) continue;
-
-    const directBlockChildren = [...el.children].filter(
-      (c) => BLOCK_TAGS.has(c.tagName)
-    ).length;
-    if (directBlockChildren > 12) continue;
-
-    const text = collapseWhitespace(el.innerText || el.textContent || "");
-    if (text.length > bestLength) {
-      bestLength = text.length;
-      bestElement = el;
+  function isInsideSkippedAncestor(el) {
+    let node = el.parentElement;
+    while (node && node !== document.body) {
+      if (SKIP_ANCESTOR_TAGS.has(node.tagName)) return true;
+      node = node.parentElement;
     }
+    return false;
   }
 
-  if (bestElement && bestLength >= MIN_LENGTH) {
+  function looksLikeBoilerplate(text) {
+    const lower = text.slice(0, 300).toLowerCase(); // check first 300 chars
+    let matchCount = 0;
+    for (const word of BOILERPLATE_WORDS) {
+      if (lower.includes(word)) matchCount++;
+    }
+    // If multiple boilerplate words appear in the opening text, skip it
+    return matchCount >= 2;
+  }
+
+  function extractLargestTextBlock() {
+    const candidates = document.querySelectorAll("article, section, main, div");
+    let best = "";
+    let maxLength = 0;
+
+    for (const el of candidates) {
+      // Skip hidden elements
+      try {
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") continue;
+      } catch {
+        continue;
+      }
+
+      // Skip elements inside nav, footer, header, aside
+      if (isInsideSkippedAncestor(el)) continue;
+
+      const text = (el.innerText || "").trim();
+
+      // Must have enough content (use MIN_LENGTH, not a higher threshold)
+      if (text.length < MIN_LENGTH) continue;
+
+      // Skip boilerplate blocks (cookie banners, privacy notices, etc.)
+      if (looksLikeBoilerplate(text)) continue;
+
+      if (text.length > maxLength) {
+        maxLength = text.length;
+        best = text;
+      }
+    }
+
+    return best;
+  }
+
+  const largestBlock = extractLargestTextBlock();
+  if (largestBlock && largestBlock.length >= MIN_LENGTH) {
+    const cleaned = cleanText(largestBlock);
+    console.log("[ResumeNest][content] Largest text block found.");
+    console.log("[ResumeNest] Extracted job text length:", cleaned.length);
     return {
       isJobPage: true,
-      text: collapseWhitespace(bestElement.innerText || bestElement.textContent),
-      reason: "heuristic_block",
+      text: cleaned,
+      reason: "largest_text_block",
     };
   }
 
-  // ── 4. LAST RESORT ────────────────────────────────────────
-  const bodyText = collapseWhitespace(document.body?.innerText || "");
-  if (!bodyText) {
+  // ── 4. FULL PAGE TEXT FALLBACK ─────────────────────────────
+  // If all else fails, extract readable text from the entire page.
+  // Clean it thoroughly before returning.
+  console.log("[ResumeNest][content] Falling back to full page body text.");
+
+  const rawBodyText = document.body?.innerText || "";
+  const bodyText = cleanText(rawBodyText);
+
+  console.log("[ResumeNest] Extracted job text length:", bodyText.length);
+
+  if (!bodyText || bodyText.length < MIN_LENGTH) {
+    console.log("[ResumeNest][content] Body text too short or empty.");
     return {
       isJobPage: false,
       text: "",
@@ -346,8 +423,38 @@
 
   return {
     isJobPage: true,
-    text: bodyText.slice(0, 8000),
+    text: bodyText.slice(0, 8000),  // cap at 8k chars to stay within token limits
     reason: "full_body_fallback",
   };
 
 })();
+
+// ============================================================
+//  SPA NAVIGATION DETECTION (LinkedIn, Indeed, etc.)
+//
+//  LinkedIn is a Single Page Application — clicking a different
+//  job listing changes the URL but does NOT reload the page.
+//  This polling loop detects URL changes and notifies the
+//  extension so sidepanel.js can re-scrape the new job.
+//
+//  Guard: only one instance runs per page (idempotent).
+// ============================================================
+if (!window.__resumeNest_spaWatcher) {
+  window.__resumeNest_spaWatcher = true;
+
+  let lastUrl = location.href;
+
+  setInterval(() => {
+    if (location.href !== lastUrl) {
+      lastUrl = location.href;
+      console.log("[ResumeNest][content] SPA navigation detected:", lastUrl);
+
+      // Notify the extension that the job page changed
+      try {
+        chrome.runtime.sendMessage({ action: "jobPageChanged", url: lastUrl });
+      } catch {
+        // Extension context may have been invalidated — ignore
+      }
+    }
+  }, 1000);
+}
