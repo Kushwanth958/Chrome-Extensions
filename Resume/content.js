@@ -151,12 +151,12 @@
   }
 
   // ── 0. QUICK PAGE-LEVEL CHECK ──────────────────────────────
-  const fullPageText = collapseWhitespace(document.body?.innerText || "");
-  const isLikelyJobPage = pageLooksLikeJob(fullPageText);
-
-  // For known job portals, skip the keyword check — we trust the URL.
+  // For known job portals and career URL patterns, skip the keyword check — we trust the URL.
   const hostname = location.hostname.toLowerCase();
+  const pathname = location.pathname.toLowerCase();
+
   const isKnownJobSite =
+    // Major job boards
     hostname.includes("linkedin.com") ||
     hostname.includes("indeed.com") ||
     hostname.includes("greenhouse.io") ||
@@ -165,14 +165,41 @@
     hostname.includes("smartrecruiters.com") ||
     hostname.includes("ashbyhq.com") ||
     hostname.includes("icims.com") ||
-    hostname.includes("workable.com");
+    hostname.includes("workable.com") ||
+    hostname.includes("myworkdayjobs.com") ||
+    hostname.includes("taleo.net") ||
+    hostname.includes("brassring.com") ||
+    hostname.includes("successfactors.com") ||
+    hostname.includes("jobvite.com") ||
+    hostname.includes("recruiting.ultipro.com") ||
+    // Company career subdomains (e.g. careers.google.com, jobs.netflix.com)
+    hostname.startsWith("careers.") ||
+    hostname.startsWith("jobs.") ||
+    // Career URL paths on company sites (e.g. google.com/careers/...)
+    pathname.includes("/careers") ||
+    pathname.includes("/jobs/") ||
+    pathname.includes("/job/") ||
+    pathname.includes("/posting/") ||
+    pathname.includes("/position/") ||
+    pathname.includes("/opening/") ||
+    pathname.includes("/apply/");
 
-  if (!isLikelyJobPage && !isKnownJobSite) {
-    return {
-      isJobPage: false,
-      text: "",
-      reason: "no_job_keywords",
-    };
+  // NOTE: We intentionally do NOT check page keywords here (before dynamic wait).
+  // On React/SPA sites the job content hasn't rendered yet at this point,
+  // so a keyword scan would give a false negative. Instead we proceed to the
+  // selector checks, and only do the keyword fallback at the very end.
+  if (!isKnownJobSite) {
+    // Quick sanity check on immediately-visible text only — don't bail yet
+    const quickText = collapseWhitespace(document.body?.innerText || "");
+    const quickLooksLikeJob = pageLooksLikeJob(quickText);
+    // If neither URL nor visible text suggests a job page, bail early
+    if (!quickLooksLikeJob) {
+      return {
+        isJobPage: false,
+        text: "",
+        reason: "no_job_keywords",
+      };
+    }
   }
 
   // ── 1. IMMEDIATE SELECTOR CHECK ────────────────────────────

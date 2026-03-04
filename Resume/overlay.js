@@ -13,14 +13,28 @@
     const host = location.hostname.toLowerCase();
     const path = location.pathname.toLowerCase();
     const isJobPage =
-        host.includes("linkedin.com") && path.includes("/jobs/") ||
-        host.includes("indeed.com") && (path.includes("/viewjob") || path.includes("/rc/clk")) ||
-        host.includes("greenhouse.io") && path.includes("/jobs/") ||
+        // Major job boards
+        (host.includes("linkedin.com") && path.includes("/jobs/")) ||
+        (host.includes("indeed.com") && (path.includes("/viewjob") || path.includes("/rc/clk"))) ||
+        (host.includes("greenhouse.io") && path.includes("/jobs/")) ||
         host.includes("lever.co") ||
-        host.includes("careers") ||
-        host.includes("jobs") ||
-        host.includes("all") ||
-        document.title.toLowerCase().includes("job") ||
+        host.includes("ashbyhq.com") ||
+        host.includes("workable.com") ||
+        host.includes("smartrecruiters.com") ||
+        host.includes("myworkdayjobs.com") ||
+        host.includes("icims.com") ||
+        host.includes("jobvite.com") ||
+        // Company career subdomains (careers.google.com, jobs.netflix.com)
+        host.startsWith("careers.") ||
+        host.startsWith("jobs.") ||
+        // Career URL paths on company sites (/careers, /jobs/, /job/)
+        path.includes("/careers") ||
+        path.includes("/jobs/") ||
+        path.includes("/job/") ||
+        path.includes("/posting/") ||
+        path.includes("/opening/") ||
+        // Page title hints
+        document.title.toLowerCase().includes(" job") ||
         document.title.toLowerCase().includes("career");
 
     if (!isJobPage) return;

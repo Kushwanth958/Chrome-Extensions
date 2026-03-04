@@ -163,8 +163,11 @@ function showScreen(name) {
 }
 
 // ============================================================
-//  AUTO-SCRAPE
+//  AUTO-SCRAPE (with retry for dynamic pages like LinkedIn)
 // ============================================================
+const SCRAPE_MAX_RETRIES = 5;
+const SCRAPE_RETRY_DELAY_MS = 1200;
+
 async function autoScrapeJobDescription() {
     let tab;
     try {
@@ -182,33 +185,68 @@ async function autoScrapeJobDescription() {
         return;
     }
 
+    // Check if this is a known dynamic job site (needs retries)
+    const tabUrl = (tab.url || "").toLowerCase();
+    const isDynamicSite =
+        tabUrl.includes("linkedin.com") ||
+        tabUrl.includes("indeed.com") ||
+        tabUrl.includes("greenhouse.io") ||
+        tabUrl.includes("lever.co");
+
     setExtractStatus("loading", "⏳", "Reading job description…");
 
-    try {
-        const results = await chrome.scripting.executeScript({
-            target: { tabId: tab.id, allFrames: false },
-            files: ["content.js"],
-        });
+    for (let attempt = 1; attempt <= SCRAPE_MAX_RETRIES; attempt++) {
+        try {
+            const results = await chrome.scripting.executeScript({
+                target: { tabId: tab.id, allFrames: false },
+                files: ["content.js"],
+            });
 
-        const raw = results?.[0]?.result;
-        const payload = (raw && typeof raw === "object" && "isJobPage" in raw)
-            ? raw
-            : { isJobPage: true, text: typeof raw === "string" ? raw : "" };
+            const raw = results?.[0]?.result;
+            const payload = (raw && typeof raw === "object" && "isJobPage" in raw)
+                ? raw
+                : { isJobPage: true, text: typeof raw === "string" ? raw : "" };
 
-        if (!payload.isJobPage) {
-            scrapedJobText = null;
-            setExtractStatus(
-                "warn",
-                "⚠",
-                "No job description detected on this page. Please navigate to a job posting."
-            );
-            updateGenerateButtonState();
-            return;
-        }
+            console.log(`[Resume AI Copilot] Scrape attempt ${attempt}/${SCRAPE_MAX_RETRIES}:`, payload.reason, `(${(payload.text || "").length} chars)`);
 
-        const text = payload.text || "";
+            // Not a job page at all — stop retrying
+            if (!payload.isJobPage) {
+                scrapedJobText = null;
+                setExtractStatus(
+                    "warn",
+                    "⚠",
+                    "No job description detected on this page. Please navigate to a job posting."
+                );
+                updateGenerateButtonState();
+                return;
+            }
 
-        if (text.length < 150) {
+            const text = payload.text || "";
+
+            // Success — got enough text
+            if (text.length >= 150) {
+                scrapedJobText = text;
+                const wordCount = text.split(/\s+/).length;
+                setExtractStatus(
+                    "success",
+                    "✓",
+                    `Job description captured (${wordCount} words) — ready to tailor.`
+                );
+                updateGenerateButtonState();
+                return;
+            }
+
+            // Dynamic content not ready yet — retry if on a known dynamic site
+            const shouldRetry = isDynamicSite && attempt < SCRAPE_MAX_RETRIES &&
+                (payload.reason === "dynamic_not_ready" || payload.reason === "full_body_fallback" || text.length < 150);
+
+            if (shouldRetry) {
+                setExtractStatus("loading", "⏳", `Waiting for page to load… (attempt ${attempt}/${SCRAPE_MAX_RETRIES})`);
+                await new Promise(r => setTimeout(r, SCRAPE_RETRY_DELAY_MS));
+                continue;
+            }
+
+            // Not enough text and no more retries
             setExtractStatus(
                 "warn",
                 "⚠",
@@ -217,21 +255,19 @@ async function autoScrapeJobDescription() {
             scrapedJobText = null;
             updateGenerateButtonState();
             return;
+
+        } catch (err) {
+            // On error, retry if we have attempts left for dynamic sites
+            if (isDynamicSite && attempt < SCRAPE_MAX_RETRIES) {
+                console.warn(`[Resume AI Copilot] Scrape attempt ${attempt} failed, retrying...`, err.message);
+                await new Promise(r => setTimeout(r, SCRAPE_RETRY_DELAY_MS));
+                continue;
+            }
+            setExtractStatus("error", "✕", `Could not read page: ${err.message}`);
+            scrapedJobText = null;
+            updateGenerateButtonState();
+            return;
         }
-
-        scrapedJobText = text;
-        const wordCount = text.split(/\s+/).length;
-        setExtractStatus(
-            "success",
-            "✓",
-            `Job description captured (${wordCount} words) — ready to tailor.`
-        );
-        updateGenerateButtonState();
-
-    } catch (err) {
-        setExtractStatus("error", "✕", `Could not read page: ${err.message}`);
-        scrapedJobText = null;
-        updateGenerateButtonState();
     }
 }
 
