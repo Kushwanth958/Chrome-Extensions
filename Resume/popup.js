@@ -520,6 +520,28 @@ btnGenerate.addEventListener("click", async () => {
     const data = await response.json();
     const tailored = data?.tailoredResume;
     const atsScore = data?.atsScore;
+    let jobMatchScore = null;
+
+    try {
+      const matchResponse = await fetch(
+        "https://chromeextensions.vercel.app/api/match",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            resumeText: tailored,
+            jobDescription: jobText,
+          }),
+        }
+      );
+
+      const matchData = await matchResponse.json();
+      jobMatchScore = matchData?.matchScore;
+    } catch (err) {
+      console.warn("[ResumeAI] Match score failed", err);
+    }
 
     if (!tailored) {
       throw new Error("The server returned an empty response. Please try again.");
@@ -531,6 +553,10 @@ btnGenerate.addEventListener("click", async () => {
 
     if (atsScore && typeof atsScore === "object") {
       renderATSScore(atsScore);
+    }
+
+    if (jobMatchScore) {
+      renderJobMatchScore(jobMatchScore);
     }
 
     // ── Persist across popup sessions ─────────────────────────
@@ -620,6 +646,27 @@ function renderATSScore(score) {
 
   previewPanel.appendChild(block);
 }
+function renderJobMatchScore(score) {
+
+  const existing = document.getElementById("job-match-block");
+  if (existing) existing.remove();
+
+  const block = document.createElement("div");
+  block.id = "job-match-block";
+  block.className = "job-match-block";
+
+  block.innerHTML = `
+    <div style="margin-top:12px;padding:10px;border:1px solid #ddd;border-radius:8px;">
+      <span style="font-weight:bold;">Job Match Score</span>
+      <div style="font-size:20px;font-weight:bold;margin-top:4px;">
+        ${score}%
+      </div>
+    </div>
+  `;
+
+  previewPanel.appendChild(block);
+}
+
 
 // ── Copy ──────────────────────────────────────────────────────
 btnCopy.addEventListener("click", async () => {
