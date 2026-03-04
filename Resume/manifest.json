@@ -21,10 +21,11 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.linkedin.com/jobs/*",
+        "https://www.linkedin.com/jobs/search*",
         "https://*.indeed.com/*",
         "https://boards.greenhouse.io/*",
-        "https://*.lever.co/*"
+        "https://*.lever.co/*",
+        "<all_urls>"
       ],
       "js": [
         "overlay.js"
