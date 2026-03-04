@@ -21,7 +21,10 @@
   <!-- PDF/DOCX text extraction (used by popup.js) -->
   <!-- <script src="lib/pdf.js"></script>
   <script src="lib/mammoth.js"></script> -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Local download libraries (loaded before popup.js) -->
+  <script src="js/jspdf.umd.min.js"></script>
+  <script src="js/docx.umd.js"></script>
 </head>
 
 <body>
@@ -133,8 +136,6 @@
     </div>
 
     <!-- Bottom action bar -->
-    <button id="downloadPDF">Download PDF</button>
-    <button id="downloadDOC">Download DOCX</button>
     <div class="bottom-bar">
       <button class="btn-action" id="btnCopy" disabled>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -151,7 +152,27 @@
           <polyline points="7 10 12 15 17 10" />
           <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
-        Download
+        TXT
+      </button>
+      <button class="btn-action" id="downloadPDF" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="12" y1="18" x2="12" y2="12" />
+          <polyline points="9 15 12 18 15 15" />
+        </svg>
+        Download PDF
+      </button>
+      <button class="btn-action" id="downloadDOC" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="9" y1="13" x2="15" y2="13" />
+          <line x1="9" y1="17" x2="15" y2="17" />
+        </svg>
+        Download DOCX
       </button>
       <button class="btn-reset" id="btnReset" title="Clear saved resume">Reset</button>
     </div>

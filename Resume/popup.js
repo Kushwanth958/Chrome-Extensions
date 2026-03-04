@@ -648,30 +648,132 @@ document.getElementById("downloadPDF").addEventListener("click", () => {
   if (!lastResult) return;
 
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+  const doc = new jsPDF({
+    format: "a4",
+    unit: "in"
+  });
 
-  const lines = doc.splitTextToSize(lastResult, 180);
-  doc.text(lines, 10, 10);
+  const margin = 0.75;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const maxLineWidth = pageWidth - margin * 2;
 
-  doc.save("ResumeNest_Resume.pdf");
+  const headingSize = 13;
+  const bodySize = 11;
+
+  let cursorY = margin;
+
+  const SECTION_HEADINGS = /^(SUMMARY|EXPERIENCE|SKILLS|EDUCATION)$/im;
+  const lines = lastResult.split('\n');
+
+  lines.forEach(line => {
+    const text = line.trim();
+    if (!text) {
+      cursorY += 0.15; // clean spacing
+      if (cursorY > pageHeight - margin) {
+        doc.addPage();
+        cursorY = margin;
+      }
+      return;
+    }
+
+    let isHeading = SECTION_HEADINGS.test(text);
+    if (isHeading) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(headingSize);
+      cursorY += 0.1;
+    } else {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(bodySize);
+    }
+
+    const splitLines = doc.splitTextToSize(text, maxLineWidth);
+
+    splitLines.forEach(splitLine => {
+      if (cursorY > pageHeight - margin - 0.2) {
+        doc.addPage();
+        cursorY = margin;
+        if (isHeading) {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(headingSize);
+        } else {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(bodySize);
+        }
+      }
+      doc.text(splitLine, margin, cursorY + ((isHeading ? headingSize : bodySize) / 72));
+      cursorY += (isHeading ? headingSize : bodySize) / 72 * 1.5;
+    });
+  });
+
+  doc.save("ResumeAI_Resume.pdf");
+  showToast("PDF download started ✓");
 });
 
-document.getElementById("downloadDOC").addEventListener("click", () => {
+document.getElementById("downloadDOC").addEventListener("click", async () => {
   if (!lastResult) return;
 
-  const blob = new Blob(
-    ["\ufeff" + lastResult],
-    { type: "application/msword" }
-  );
+  const { Document, Packer, Paragraph, TextRun } = window.docx;
 
+  const SECTION_HEADINGS = /^(SUMMARY|EXPERIENCE|SKILLS|EDUCATION)$/im;
+  const lines = lastResult.split('\n');
+  const children = [];
+
+  for (const line of lines) {
+    const text = line.trim();
+    if (!text) {
+      children.push(new Paragraph({ text: "", spacing: { after: 120 } }));
+      continue;
+    }
+
+    if (SECTION_HEADINGS.test(text)) {
+      children.push(new Paragraph({
+        children: [
+          new TextRun({
+            text: text.toUpperCase(),
+            bold: true,
+            size: 26, // 13pt
+          }),
+        ],
+        spacing: { before: 240, after: 120 },
+      }));
+    } else {
+      children.push(new Paragraph({
+        children: [
+          new TextRun({
+            text: text,
+            size: 22, // 11pt
+          }),
+        ],
+        spacing: { after: 120 },
+      }));
+    }
+  }
+
+  const doc = new Document({
+    sections: [{
+      properties: {
+        page: {
+          margin: {
+            top: 1080,
+            right: 1080,
+            bottom: 1080,
+            left: 1080,
+          },
+        },
+      },
+      children: children,
+    }],
+  });
+
+  const blob = await Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
-
   const a = document.createElement("a");
   a.href = url;
-  a.download = "ResumeNest_Resume.doc";
+  a.download = "ResumeAI_Resume.docx";
   a.click();
-
   URL.revokeObjectURL(url);
+  showToast("DOCX download started ✓");
 });
 
 // ── Reset: clear storage → back to onboarding ────────────────
