@@ -1,0 +1,9 @@
+{
+    "name": "resumenest-api",
+    "version": "3.0.0",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "cheerio": "^1.0.0"
+    }
+}

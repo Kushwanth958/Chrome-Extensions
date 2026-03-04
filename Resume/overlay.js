@@ -24,18 +24,23 @@
         host.includes("myworkdayjobs.com") ||
         host.includes("icims.com") ||
         host.includes("jobvite.com") ||
+        host.includes("rippling.com") ||
+        host.includes("notion.site") ||
         // Company career subdomains (careers.google.com, jobs.netflix.com)
         host.startsWith("careers.") ||
         host.startsWith("jobs.") ||
-        // Career URL paths on company sites (/careers, /jobs/, /job/)
+        // Career URL paths on company sites (/careers, /jobs/, /job/, /apply)
         path.includes("/careers") ||
         path.includes("/jobs/") ||
         path.includes("/job/") ||
         path.includes("/posting/") ||
         path.includes("/opening/") ||
+        path.includes("/apply") ||
         // Page title hints
         document.title.toLowerCase().includes(" job") ||
-        document.title.toLowerCase().includes("career");
+        document.title.toLowerCase().includes("career") ||
+        document.title.toLowerCase().includes("opening") ||
+        document.title.toLowerCase().includes("position");
 
     if (!isJobPage) return;
 

@@ -54,6 +54,12 @@ const btnDownload = document.getElementById("btnDownload");
 const btnReset = document.getElementById("btnReset");
 const toast = document.getElementById("toast");
 
+// ── DOM — URL paste fallback ──────────────────────────────────
+const urlFallback = document.getElementById("urlFallback");
+const urlInput = document.getElementById("urlInput");
+const btnFetchUrl = document.getElementById("btnFetchUrl");
+const urlFetchStatus = document.getElementById("urlFetchStatus");
+
 
 
 // ── State ─────────────────────────────────────────────────────
@@ -159,7 +165,14 @@ async function autoScrapeJobDescription() {
         tabUrl.includes("linkedin.com") ||
         tabUrl.includes("indeed.com") ||
         tabUrl.includes("greenhouse.io") ||
-        tabUrl.includes("lever.co");
+        tabUrl.includes("lever.co") ||
+        tabUrl.includes("myworkdayjobs.com") ||
+        tabUrl.includes("icims.com") ||
+        tabUrl.includes("smartrecruiters.com") ||
+        tabUrl.includes("jobvite.com") ||
+        tabUrl.includes("ashbyhq.com") ||
+        tabUrl.includes("rippling.com") ||
+        tabUrl.includes("notion.site");
 
     setExtractStatus("loading", "⏳", "Reading job description…");
 
@@ -205,21 +218,41 @@ async function autoScrapeJobDescription() {
                         }, POLL_INTERVAL);
                     });
 
-                    // Step 1: Known selectors
+                    // Step 1: Known selectors (ordered specific → generic)
                     const SELECTORS = [
+                        // LinkedIn
                         ".jobs-description__content", ".jobs-box__html-content",
                         ".jobs-description-content__text", "[class*='jobs-description']",
+                        // Indeed
                         "#jobDescriptionText", ".jobsearch-jobDescriptionText",
+                        // Greenhouse / Lever
                         ".job__description", ".job-post-content",
                         ".posting-description",
+                        // Workday
                         "[data-automation-id='jobPostingDescription']",
-                        ".iCIMS_JobContent", ".job-sections",
+                        // iCIMS
+                        ".iCIMS_JobContent", ".iCIMS_Expandable_Container",
+                        // SmartRecruiters
+                        ".job-sections", ".details-content",
+                        // Jobvite
+                        ".jv-job-detail-description",
+                        // Ashby
                         ".ashby-job-posting-brief-description",
+                        // Rippling
+                        "[class*='JobPosting']", "[class*='job-posting']",
+                        // Notion career pages
+                        "[class*='notion-page-content']",
+                        // Generic semantic selectors
+                        "[itemprop='description']",
+                        "[class*='description']",
+                        "[class*='job-details']", "[id*='job-description']",
+                        // Common class / ID patterns
                         ".jobs-description", ".job-description",
                         "#job-description", "#jobDescription", ".jobDescription",
                         ".job-details", "[class*='job-detail']",
                         ".jobDetailBody", "#job-detail",
                         "[class*='job-description']", "[class*='jobDescription']",
+                        // Broad fallbacks
                         "main", "[role='main']", "article", ".content",
                     ];
 
@@ -286,6 +319,7 @@ async function autoScrapeJobDescription() {
                     "⚠",
                     "No job description detected on this page. Please navigate to a job posting."
                 );
+                urlFallback.hidden = false;
                 updateGenerateButtonState();
                 return;
             }
@@ -301,6 +335,7 @@ async function autoScrapeJobDescription() {
                     "✓",
                     `Job description captured (${wordCount} words) — ready to tailor.`
                 );
+                urlFallback.hidden = true;
                 updateGenerateButtonState();
                 return;
             }
@@ -322,6 +357,7 @@ async function autoScrapeJobDescription() {
                 "Couldn't extract enough text. Make sure you're on a job description page."
             );
             scrapedJobText = null;
+            urlFallback.hidden = false;
             updateGenerateButtonState();
             return;
 
@@ -334,11 +370,73 @@ async function autoScrapeJobDescription() {
             }
             setExtractStatus("error", "✕", `Could not read page: ${err.message}`);
             scrapedJobText = null;
+            urlFallback.hidden = false;
             updateGenerateButtonState();
             return;
         }
     }
 }
+
+// ============================================================
+//  URL PASTE FALLBACK — fetch job description via backend
+// ============================================================
+btnFetchUrl.addEventListener("click", async () => {
+    const url = urlInput.value.trim();
+    if (!url) {
+        urlFetchStatus.textContent = "Please paste a valid URL.";
+        urlFetchStatus.className = "url-fallback-status error";
+        return;
+    }
+
+    try {
+        new URL(url); // validate URL format
+    } catch {
+        urlFetchStatus.textContent = "Invalid URL format.";
+        urlFetchStatus.className = "url-fallback-status error";
+        return;
+    }
+
+    btnFetchUrl.disabled = true;
+    urlFetchStatus.textContent = "Fetching job description…";
+    urlFetchStatus.className = "url-fallback-status";
+
+    try {
+        const scrapeUrl = BACKEND_URL.replace("/api/generate", "/api/scrape");
+        const response = await fetch(scrapeUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url }),
+        });
+
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body?.error || `Server error: HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const jobDesc = data?.jobDescription;
+
+        if (!jobDesc || jobDesc.trim().length < 100) {
+            throw new Error("Could not extract enough text from that URL.");
+        }
+
+        scrapedJobText = jobDesc;
+        const wordCount = jobDesc.split(/\s+/).length;
+        setExtractStatus(
+            "success",
+            "✓",
+            `Job description fetched (${wordCount} words) — ready to tailor.`
+        );
+        urlFallback.hidden = true;
+        urlFetchStatus.textContent = "";
+        updateGenerateButtonState();
+    } catch (err) {
+        urlFetchStatus.textContent = err.message;
+        urlFetchStatus.className = "url-fallback-status error";
+    } finally {
+        btnFetchUrl.disabled = false;
+    }
+});
 
 function setExtractStatus(state, icon, text) {
     extractStatus.className = "extract-status";

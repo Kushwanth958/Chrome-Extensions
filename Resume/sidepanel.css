@@ -835,3 +835,91 @@ header {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
 }
+
+/* ── URL Paste Fallback ────────────────────────────────────── */
+.url-fallback {
+    margin: 0 20px 12px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.url-fallback-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+}
+
+.url-fallback-row {
+    display: flex;
+    gap: 8px;
+}
+
+.url-input {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.url-input:focus {
+    border-color: var(--accent);
+}
+
+.url-input::placeholder {
+    color: var(--text-muted);
+}
+
+.btn-fetch-url {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 14px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s, transform 0.1s;
+}
+
+.btn-fetch-url:hover {
+    background: var(--accent-light);
+    transform: translateY(-1px);
+}
+
+.btn-fetch-url:active {
+    transform: translateY(0);
+}
+
+.btn-fetch-url:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.url-fallback-status {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+    min-height: 16px;
+}
+
+.url-fallback-status.error {
+    color: var(--danger);
+}
+
+.url-fallback-status.success {
+    color: var(--success);
+}
