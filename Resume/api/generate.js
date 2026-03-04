@@ -76,8 +76,8 @@ function trimJobDescription(text) {
     .map((l) => l.trim())
     .filter(
       (l) =>
-        l.length > 30 &&
-        !/equal opportunity|privacy|terms|cookie|benefits|accommodation|about us/i.test(l)
+        l.length > 0 &&
+        !/^(equal opportunity|privacy policy|terms of use|cookie|about us)\b/i.test(l)
     )
     .join("\n")
     .slice(0, 6000);
@@ -201,32 +201,15 @@ Before finalizing output, internally verify that if an interviewer asked the can
 12. ATS OPTIMIZATION REQUIREMENT:
 Ensure all critical job description terminology appears naturally in the resume when supported by experience. Use exact phrasing for required tools, systems, and technical skills to maximize ATS matching probability.
 
-13. ATS SCORING OUTPUT REQUIREMENT:
-After generating the full tailored resume, append exactly:
-
-ATS_SCORE_JSON:
-{
-  "score": integer 0-100,
-  "matchedKeywords": array of strings,
-  "missingKeywords": array of strings,
-  "advice": one concise improvement sentence
-}
-
-Rules for the ATS block:
-- Output the complete resume first.
-- Then output ATS_SCORE_JSON on a new line.
-- The JSON must be valid.
-- No markdown, no extra commentary.
-
-14. FORMAT RULES:
+13. FORMAT RULES:
 - Use plain text only.
 - No markdown.
 - No JSON in the resume body.
 - Use hyphen (-) for bullet points.
-- No commentary before or after the resume (the ATS_SCORE_JSON block is the only permitted addition after the resume).
+- No commentary before or after the resume.
 - No explanations.
 
-15. FINAL CHECK:
+14. FINAL CHECK:
 The final resume must read as if it was specifically written for THIS exact job — not as a generic resume rewrite.`;
 
   const userPrompt =
@@ -290,39 +273,8 @@ The final resume must read as if it was specifically written for THIS exact job 
     return res.status(502).json({ error: "Claude returned an empty response. Please try again." });
   }
 
-  // ── Split resume body from ATS score block ───────────────────
-  const ATS_DELIMITER = "ATS_SCORE_JSON:";
-  const delimiterIndex = responseText.indexOf(ATS_DELIMITER);
-
-  // If ATS block is missing (truncation), return resume with default score
-  // instead of failing the entire request
-  if (delimiterIndex === -1) {
-    console.warn("[ResumeNest] ATS_SCORE_JSON block missing — returning resume with default score.");
-    const defaultAts = {
-      score: 0,
-      matchedKeywords: [],
-      missingKeywords: [],
-      advice: "ATS score unavailable — Claude response was truncated. Try again."
-    };
-
-    const result = { tailoredResume: responseText, atsScore: defaultAts };
-    setCachedResult(cacheKey, result);
-    return res.status(200).json(result);
-  }
-
-  const tailoredResume = responseText.slice(0, delimiterIndex).trim();
-  const rawAtsJson = responseText.slice(delimiterIndex + ATS_DELIMITER.length).trim();
-
-  let atsScore;
-  try {
-    atsScore = JSON.parse(rawAtsJson);
-  } catch (parseErr) {
-    console.error("[ResumeNest] Failed to parse ATS_SCORE_JSON:", rawAtsJson);
-    return res.status(502).json({ error: "ATS score JSON is invalid. Please try again." });
-  }
-
-  // ── Cache the successful result ──────────────────────────────
-  const result = { tailoredResume, atsScore };
+  // ── Return the tailored resume ──────────────────────────────
+  const result = { tailoredResume: responseText };
   setCachedResult(cacheKey, result);
   console.log("[ResumeNest] Result cached. Cache size:", cache.size);
 

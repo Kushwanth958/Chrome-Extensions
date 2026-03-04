@@ -118,48 +118,6 @@
             <span class="extract-text" id="extractText">Reading job description…</span>
         </div>
 
-        <!-- ── Match Analysis panel (hidden until data) ─── -->
-        <div class="match-analysis" id="matchAnalysis" hidden>
-            <div class="match-analysis-header">
-                <div class="match-analysis-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M12 6v6l4 2" />
-                    </svg>
-                    <span class="match-analysis-label">Job Match Score</span>
-                </div>
-                <span class="match-analysis-score" id="matchScoreValue">—</span>
-            </div>
-            <div class="match-bar-track">
-                <div class="match-bar-fill" id="matchBarFill" style="width:0%"></div>
-            </div>
-            <div class="match-skills-grid">
-                <div class="match-skills-col">
-                    <span class="match-skills-heading match-skills-heading--good">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                            stroke-linecap="round" stroke-linejoin="round">
-                            <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                        Strengths
-                    </span>
-                    <div class="match-skills-list" id="matchStrengths"></div>
-                </div>
-                <div class="match-skills-col">
-                    <span class="match-skills-heading match-skills-heading--weak">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                            stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="15" y1="9" x2="9" y2="15" />
-                            <line x1="9" y1="9" x2="15" y2="15" />
-                        </svg>
-                        Weak Areas
-                    </span>
-                    <div class="match-skills-list" id="matchWeakAreas"></div>
-                </div>
-            </div>
-        </div>
-
         <!-- ── Action Buttons Row ──────────────────────── -->
         <div class="action-buttons-grid">
             <button class="btn-generate" id="btnGenerate" disabled>

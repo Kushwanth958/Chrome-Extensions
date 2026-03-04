@@ -68,12 +68,12 @@ const btnDownload = document.getElementById("btnDownload");
 const btnReset = document.getElementById("btnReset");
 const toast = document.getElementById("toast");
 
-// ── DOM — Match Analysis panel ───────────────────────────────
-const matchAnalysisEl = document.getElementById("matchAnalysis");
-const matchScoreValueEl = document.getElementById("matchScoreValue");
-const matchBarFillEl = document.getElementById("matchBarFill");
-const matchStrengthsEl = document.getElementById("matchStrengths");
-const matchWeakAreasEl = document.getElementById("matchWeakAreas");
+// // ── DOM — Match Analysis panel ───────────────────────────────
+// const matchAnalysisEl = document.getElementById("matchAnalysis");
+// const matchScoreValueEl = document.getElementById("matchScoreValue");
+// const matchBarFillEl = document.getElementById("matchBarFill");
+// const matchStrengthsEl = document.getElementById("matchStrengths");
+// const matchWeakAreasEl = document.getElementById("matchWeakAreas");
 
 // ── State ─────────────────────────────────────────────────────
 let pickedResumeText = null;   // plain resume text during onboarding
@@ -143,9 +143,9 @@ async function init() {
       renderATSScore(stored[STORAGE_KEY_LAST_ATS]);
     }
 
-    if (stored.jobMatchScore !== null && stored.jobMatchScore !== undefined) {
-      populateMatchAnalysis(stored.jobMatchScore);
-    }
+    // if (stored.jobMatchScore !== null && stored.jobMatchScore !== undefined) {
+    //   populateMatchAnalysis(stored.jobMatchScore);
+    // }
 
     if (stored.applyReadiness && typeof stored.applyReadiness === "object") {
       renderApplyReadiness(

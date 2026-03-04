@@ -25,7 +25,7 @@ const BACKEND_URL = "https://chromeextensions.vercel.app/api/generate";
 const STORAGE_KEY_RESUME_TEXT = "resumeText";
 const LEGACY_STORAGE_KEY_RESUME = "resumeai_base_resume";
 const STORAGE_KEY_LAST_RESUME = "lastTailoredResume";
-const STORAGE_KEY_LAST_ATS = "lastATSScore";
+
 
 // ── DOM — Onboarding screen ───────────────────────────────────
 const screenOnboarding = document.getElementById("screen-onboarding");
@@ -55,12 +55,7 @@ const btnDownload = document.getElementById("btnDownload");
 const btnReset = document.getElementById("btnReset");
 const toast = document.getElementById("toast");
 
-// ── DOM — Match Analysis panel ───────────────────────────────
-const matchAnalysisEl = document.getElementById("matchAnalysis");
-const matchScoreValueEl = document.getElementById("matchScoreValue");
-const matchBarFillEl = document.getElementById("matchBarFill");
-const matchStrengthsEl = document.getElementById("matchStrengths");
-const matchWeakAreasEl = document.getElementById("matchWeakAreas");
+
 
 // ── State ─────────────────────────────────────────────────────
 let pickedResumeText = null;
@@ -98,10 +93,6 @@ async function init() {
         STORAGE_KEY_RESUME_TEXT,
         LEGACY_STORAGE_KEY_RESUME,
         STORAGE_KEY_LAST_RESUME,
-        STORAGE_KEY_LAST_ATS,
-        "jobMatchScore",
-        "applyReadiness",
-        "scoreExplanation",
     ]);
 
     if (typeof stored[STORAGE_KEY_RESUME_TEXT] === "string" && stored[STORAGE_KEY_RESUME_TEXT].trim()) {
@@ -119,27 +110,7 @@ async function init() {
             btnDownload.disabled = false;
             document.getElementById("downloadPDF").disabled = false;
             document.getElementById("downloadDOC").disabled = false;
-            previewHint.textContent = "Claude-tailored · ATS-ready";
-        }
-
-        if (stored[STORAGE_KEY_LAST_ATS] && typeof stored[STORAGE_KEY_LAST_ATS] === "object") {
-            renderATSScore(stored[STORAGE_KEY_LAST_ATS]);
-        }
-
-        if (stored.jobMatchScore !== null && stored.jobMatchScore !== undefined) {
-            populateMatchAnalysis(stored.jobMatchScore);
-        }
-
-        if (stored.applyReadiness && typeof stored.applyReadiness === "object") {
-            renderApplyReadiness(
-                stored.applyReadiness.score,
-                stored.applyReadiness.recommendation,
-                stored.applyReadiness.suggestions
-            );
-        }
-
-        if (stored.scoreExplanation && typeof stored.scoreExplanation === "string") {
-            renderScoreExplanation(stored.scoreExplanation);
+            previewHint.textContent = "Claude-tailored · Ready to use";
         }
 
         await autoScrapeJobDescription();
@@ -625,90 +596,25 @@ btnGenerate.addEventListener("click", async () => {
 
         const data = await response.json();
         const tailored = data?.tailoredResume;
-        const atsScore = data?.atsScore;
-        let jobMatchScore = null;
-
-        if (!pickedResumeText || !jobText) {
-            console.warn("[Resume AI Copilot] Missing resume or job description for match score");
-        } else {
-            try {
-                const matchResponse = await fetch(
-                    "https://chromeextensions.vercel.app/api/match",
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            resumeText: pickedResumeText.trim(),
-                            jobDescription: jobText.trim(),
-                        }),
-                    }
-                );
-
-                const matchData = await matchResponse.json();
-                jobMatchScore = matchData?.matchScore !== undefined ? matchData : null;
-            } catch (err) {
-                console.warn("[Resume AI Copilot] Match score failed", err);
-            }
-        }
 
         if (!tailored) {
             throw new Error("The server returned an empty response. Please try again.");
         }
 
         // Render the result
-        renderResult(cleanClaudeOutput(tailored));
+        renderResult(tailored);
         lastResult = tailored;
-
-        if (atsScore && typeof atsScore === "object") {
-            renderATSScore(atsScore);
-        }
-
-        if (jobMatchScore !== null && jobMatchScore !== undefined) {
-            populateMatchAnalysis(jobMatchScore);
-        }
-
-        // Apply Readiness
-        let applyReadiness = null;
-        if (jobMatchScore !== null && jobMatchScore !== undefined && atsScore && typeof atsScore === "object") {
-            const jmScore = typeof jobMatchScore === "object" ? jobMatchScore.matchScore : jobMatchScore;
-            const arScore = Math.round((jmScore * 0.6) + ((atsScore.score || 0) * 0.4));
-
-            let recommendation;
-            if (arScore >= 80) recommendation = "Strongly Apply";
-            else if (arScore >= 60) recommendation = "Apply with Improvements";
-            else if (arScore >= 40) recommendation = "Improve Resume First";
-            else recommendation = "Not a Good Match";
-
-            const missingKeywords = Array.isArray(atsScore.missingKeywords) ? atsScore.missingKeywords : [];
-            const suggestions = missingKeywords.slice(0, 3).map(k =>
-                `Add experience or mention of "${k}" if relevant to your work.`
-            );
-
-            applyReadiness = { score: arScore, recommendation, suggestions };
-            renderApplyReadiness(arScore, recommendation, suggestions);
-        }
-
-        // Score Explanation
-        let scoreExplanation = null;
-        if (jobMatchScore !== null && jobMatchScore !== undefined && atsScore && typeof atsScore === "object") {
-            scoreExplanation = generateScoreExplanation(atsScore, jobMatchScore);
-            renderScoreExplanation(scoreExplanation);
-        }
 
         // Persist across sessions
         chrome.storage.local.set({
             [STORAGE_KEY_LAST_RESUME]: tailored,
-            [STORAGE_KEY_LAST_ATS]: atsScore ?? null,
-            jobMatchScore: jobMatchScore ?? null,
-            applyReadiness: applyReadiness,
-            scoreExplanation: scoreExplanation,
         });
 
         btnCopy.disabled = false;
         btnDownload.disabled = false;
         document.getElementById("downloadPDF").disabled = false;
         document.getElementById("downloadDOC").disabled = false;
-        previewHint.textContent = "Claude-tailored · ATS-ready";
+        previewHint.textContent = "Claude-tailored · Ready to use";
 
     } catch (err) {
         console.error("[Resume AI Copilot] Generate call failed", err);
@@ -720,10 +626,7 @@ btnGenerate.addEventListener("click", async () => {
     }
 });
 
-// ── Clean Claude output ─────────────────────────────────────
-function cleanClaudeOutput(text) {
-    return text.replace(/Job Match Score[\s\S]*?\n\n/gi, "").trim();
-}
+
 
 // ── Render the tailored resume ────────────────────────────────
 function renderResult(text) {
@@ -749,231 +652,7 @@ function renderResult(text) {
     previewPanel.appendChild(pre);
 }
 
-// ── Render the ATS score block ───────────────────────────────
-function renderATSScore(score) {
-    const existing = document.getElementById("ats-score-block");
-    if (existing) existing.remove();
 
-    const block = document.createElement("div");
-    block.id = "ats-score-block";
-    block.className = "ats-score-block";
-
-    const pct = Math.min(100, Math.max(0, Number(score.score) || 0));
-    const matchedList = Array.isArray(score.matchedKeywords) ? score.matchedKeywords : [];
-    const missingList = Array.isArray(score.missingKeywords) ? score.missingKeywords : [];
-
-    block.innerHTML = `
-    <div class="ats-header">
-      <span class="ats-label">ATS Score</span>
-      <span class="ats-score-value">${pct}<span class="ats-score-unit">/100</span></span>
-    </div>
-    <div class="ats-bar-track"><div class="ats-bar-fill" style="width:${pct}%"></div></div>
-    ${matchedList.length
-            ? `<p class="ats-section-label">✓ Matched keywords</p>
-           <p class="ats-keywords ats-matched">${matchedList.join(", ")}</p>`
-            : ""
-        }
-    ${missingList.length
-            ? `<p class="ats-section-label">✗ Missing keywords</p>
-           <p class="ats-keywords ats-missing">${missingList.join(", ")}</p>`
-            : ""
-        }
-    ${score.advice
-            ? `<p class="ats-advice">💡 ${score.advice}</p>`
-            : ""
-        }
-  `;
-
-    previewPanel.appendChild(block);
-}
-
-function renderJobMatchScore(score) {
-    const existing = document.getElementById("job-match-block");
-    if (existing) existing.remove();
-
-    const block = document.createElement("div");
-    block.id = "job-match-block";
-    block.className = "job-match-block";
-
-    const isObject = score !== null && typeof score === "object";
-    const matchScore = isObject ? score.matchScore : score;
-    const semanticScore = isObject ? score.semanticScore : null;
-    const keywordScore = isObject ? score.keywordScore : null;
-    const categoryScore = isObject ? score.categoryScore : null;
-
-    const breakdownHtml = (semanticScore !== null)
-        ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">
-         <div>Semantic Similarity: <strong>${semanticScore}%</strong></div>
-         <div>Keyword Coverage: <strong>${keywordScore}%</strong></div>
-         <div>Skill Category Match: <strong>${categoryScore}%</strong></div>
-       </div>`
-        : "";
-
-    block.innerHTML = `
-    <div style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2);">
-      <span style="font-weight:bold;color:var(--text);">Job Match Score</span>
-      <div style="font-size:20px;font-weight:bold;margin-top:4px;color:var(--accent);">
-        ${matchScore}%
-      </div>
-      ${breakdownHtml}
-    </div>
-  `;
-
-    previewPanel.appendChild(block);
-}
-
-// ── Render Apply Readiness block ──────────────────────────────
-function renderApplyReadiness(score, recommendation, suggestions) {
-    const existing = document.getElementById("apply-readiness-block");
-    if (existing) existing.remove();
-
-    const block = document.createElement("div");
-    block.id = "apply-readiness-block";
-
-    const suggestionsHtml = Array.isArray(suggestions) && suggestions.length
-        ? `<div style="margin-top:8px;">
-         <strong>Suggestions:</strong>
-         <ul style="margin:4px 0 0 16px;padding:0;">
-           ${suggestions.map(s => `<li style="margin-bottom:4px;font-size:11px;color:var(--text-dim);">${s}</li>`).join("")}
-         </ul>
-       </div>`
-        : "";
-
-    block.innerHTML = `
-    <div style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2);">
-      <strong style="color:var(--text);">Apply Readiness Score</strong>
-      <div style="font-size:22px;font-weight:bold;margin-top:4px;color:var(--accent-2);">
-        ${score}%
-      </div>
-      <div style="margin-top:6px;font-size:12px;color:var(--text-dim);">
-        Recommendation: <strong style="color:var(--text);">${recommendation}</strong>
-      </div>
-      ${suggestionsHtml}
-    </div>
-  `;
-
-    previewPanel.appendChild(block);
-}
-
-// ── Generate score explanation text ───────────────────────────
-function generateScoreExplanation(atsScore, jobMatchData) {
-    const lines = [];
-    const missingKeywords = Array.isArray(atsScore.missingKeywords) ? atsScore.missingKeywords : [];
-    const isObject = jobMatchData !== null && typeof jobMatchData === "object";
-    const semanticScore = isObject ? jobMatchData.semanticScore : null;
-    const keywordScore = isObject ? jobMatchData.keywordScore : null;
-    const categoryScore = isObject ? jobMatchData.categoryScore : null;
-    const matchScore = isObject ? jobMatchData.matchScore : jobMatchData;
-
-    if (semanticScore !== null && semanticScore < 50) {
-        lines.push("The role emphasizes different responsibilities than those highlighted in your resume. Consider restructuring your experience to better align with the job's focus areas.");
-    } else if (semanticScore !== null && semanticScore < 70) {
-        lines.push("Your resume has some overlap with the role's focus, but there's room to better align your experience with the job's core responsibilities.");
-    }
-
-    if (keywordScore !== null && keywordScore < 30) {
-        const topMissing = missingKeywords.slice(0, 4).join(", ");
-        lines.push("The job description requires specific tools and technologies that are not currently mentioned in your resume" + (topMissing ? " (such as " + topMissing + ")" : "") + ". Adding relevant experience with these tools can significantly improve your match.");
-    } else if (keywordScore !== null && keywordScore < 60) {
-        lines.push("Some of the key terms from the job description are missing from your resume. Incorporating relevant keywords naturally into your experience can boost your ATS and match scores.");
-    }
-
-    if (categoryScore !== null && categoryScore >= 80 && keywordScore !== null && keywordScore < 50) {
-        lines.push("Great news — your core skill categories strongly match this role! The lower keyword score is due to specific technologies the job mentions. Your foundational skills position you well, and adding those specific tools to your resume could make a big difference.");
-    }
-
-    if (missingKeywords.length > 0 && missingKeywords.length <= 5) {
-        lines.push("Consider adding experience with: " + missingKeywords.join(", ") + ". Even brief mentions of relevant projects or coursework can help.");
-    } else if (missingKeywords.length > 5) {
-        const shown = missingKeywords.slice(0, 5).join(", ");
-        lines.push("There are " + missingKeywords.length + " keywords from the job description not found in your resume. Key ones to focus on: " + shown + ". Prioritize the ones most relevant to your actual experience.");
-    }
-
-    if (matchScore >= 70) {
-        lines.push("Overall, your profile is a strong match for this role. A few targeted tweaks could push your score even higher!");
-    } else if (matchScore >= 50) {
-        lines.push("You have a solid foundation for this role. With some targeted adjustments to highlight relevant experience and add missing keywords, you can improve your match significantly.");
-    } else {
-        lines.push("This role has a different focus than your current resume highlights. Consider whether you have transferable skills that could be repositioned to better match the requirements.");
-    }
-
-    return lines.join("\n\n");
-}
-
-// ── Render score explanation block ────────────────────────────
-function renderScoreExplanation(explanationText) {
-    const existing = document.getElementById("score-explanation-block");
-    if (existing) existing.remove();
-
-    if (!explanationText) return;
-
-    const block = document.createElement("div");
-    block.id = "score-explanation-block";
-
-    const paragraphs = explanationText.split("\n\n")
-        .filter(function (p) { return p.trim(); })
-        .map(function (p) { return '<p style="margin:0 0 8px 0;line-height:1.5;font-size:11.5px;color:var(--text-dim);">' + p + '</p>'; })
-        .join("");
-
-    block.innerHTML =
-        '<div style="margin-top:12px;padding:12px;border:1px solid rgba(124,111,255,0.2);border-radius:var(--radius);background:var(--accent-dim);">' +
-        '<strong style="display:block;margin-bottom:8px;color:var(--text);">📊 Score Explanation</strong>' +
-        '<div>' +
-        paragraphs +
-        '</div></div>';
-
-    previewPanel.appendChild(block);
-}
-
-// ── Populate Match Analysis panel ─────────────────────────────
-function populateMatchAnalysis(matchData) {
-    if (!matchAnalysisEl) return;
-
-    const isObject = matchData !== null && typeof matchData === "object";
-    const score = isObject ? matchData.matchScore : matchData;
-    const matched = isObject && Array.isArray(matchData.matchedSkills) ? matchData.matchedSkills : [];
-    const missing = isObject && Array.isArray(matchData.missingSkills) ? matchData.missingSkills : [];
-
-    if (score === null || score === undefined) return;
-
-    // Score + progress bar
-    matchScoreValueEl.textContent = score + "%";
-    matchBarFillEl.style.width = Math.min(100, Math.max(0, score)) + "%";
-
-    // Strengths chips
-    matchStrengthsEl.innerHTML = "";
-    const showMatched = matched.slice(0, 8);
-    const strengthsCol = matchStrengthsEl.parentElement;
-    if (showMatched.length === 0) {
-        strengthsCol.hidden = true;
-    } else {
-        strengthsCol.hidden = false;
-        showMatched.forEach(function (skill) {
-            const chip = document.createElement("span");
-            chip.className = "match-skill-chip match-skill-chip--good";
-            chip.textContent = "✔ " + skill;
-            matchStrengthsEl.appendChild(chip);
-        });
-    }
-
-    // Weak Areas chips
-    matchWeakAreasEl.innerHTML = "";
-    const showMissing = missing.slice(0, 8);
-    const weakCol = matchWeakAreasEl.parentElement;
-    if (showMissing.length === 0) {
-        weakCol.hidden = true;
-    } else {
-        weakCol.hidden = false;
-        showMissing.forEach(function (skill) {
-            const chip = document.createElement("span");
-            chip.className = "match-skill-chip match-skill-chip--weak";
-            chip.textContent = "✘ " + skill;
-            matchWeakAreasEl.appendChild(chip);
-        });
-    }
-
-    matchAnalysisEl.hidden = false;
-}
 
 // ── Copy (Optimize Resume button) ────────────────────────────
 btnCopy.addEventListener("click", async () => {
@@ -1145,7 +824,6 @@ btnReset.addEventListener("click", async () => {
         STORAGE_KEY_RESUME_TEXT,
         LEGACY_STORAGE_KEY_RESUME,
         STORAGE_KEY_LAST_RESUME,
-        STORAGE_KEY_LAST_ATS,
     ]);
 
     scrapedJobText = null;

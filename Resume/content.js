@@ -12,7 +12,14 @@
 //
 //  Returns: { isJobPage: boolean, text: string, reason: string }
 // ============================================================
-
+try {
+  const showMoreBtn = document.querySelector(
+    "button[aria-label*='more'], button[aria-expanded='false']"
+  );
+  if (showMoreBtn) {
+    showMoreBtn.click();
+  }
+} catch { }
 (async function extractJobDescription() {
 
   console.log("[ResumeNest] Starting job description extraction...");
@@ -68,7 +75,7 @@
     ".jobs-description__content",
     ".jobs-box__html-content",
     ".jobs-description-content__text",
-    "About the job",
+    // "About the job",
     "[class*='jobs-description']",
 
     // Indeed
