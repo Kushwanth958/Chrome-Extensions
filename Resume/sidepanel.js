@@ -199,17 +199,118 @@ async function autoScrapeJobDescription() {
 
     for (let attempt = 1; attempt <= SCRAPE_MAX_RETRIES; attempt++) {
         try {
+            // ── Inline extraction function ────────────────────────
+            // Using func instead of files because executeScript({files:...})
+            // returns a Promise object from async IIFEs, not the resolved value.
+            // With func, Chrome properly awaits the async function.
             const results = await chrome.scripting.executeScript({
                 target: { tabId: tab.id, allFrames: false },
-                files: ["content.js"],
+                func: async function () {
+                    const MIN_LENGTH = 200;
+                    const MAX_WAIT = 6000;
+                    const POLL_INTERVAL = 300;
+                    const BODY_THRESHOLD = 1000;
+
+                    function cleanText(raw) {
+                        return raw.replace(/\s+/g, " ").replace(/\n{2,}/g, "\n\n").trim();
+                    }
+
+                    function trySelectors(selectors) {
+                        for (const sel of selectors) {
+                            try {
+                                const el = document.querySelector(sel);
+                                if (!el) continue;
+                                const text = cleanText(el.innerText || el.textContent || "");
+                                if (text.length >= MIN_LENGTH) return text;
+                            } catch { }
+                        }
+                        return null;
+                    }
+
+                    // Step 0: Wait for DOM to populate
+                    await new Promise((resolve) => {
+                        const start = Date.now();
+                        const timer = setInterval(() => {
+                            const len = (document.body?.innerText || "").length;
+                            if (len > BODY_THRESHOLD || Date.now() - start >= MAX_WAIT) {
+                                clearInterval(timer);
+                                resolve();
+                            }
+                        }, POLL_INTERVAL);
+                    });
+
+                    // Step 1: Known selectors
+                    const SELECTORS = [
+                        ".jobs-description__content", ".jobs-box__html-content",
+                        ".jobs-description-content__text", "[class*='jobs-description']",
+                        "#jobDescriptionText", ".jobsearch-jobDescriptionText",
+                        ".job__description", ".job-post-content",
+                        ".posting-description",
+                        "[data-automation-id='jobPostingDescription']",
+                        ".iCIMS_JobContent", ".job-sections",
+                        ".ashby-job-posting-brief-description",
+                        ".jobs-description", ".job-description",
+                        "#job-description", "#jobDescription", ".jobDescription",
+                        ".job-details", "[class*='job-detail']",
+                        ".jobDetailBody", "#job-detail",
+                        "[class*='job-description']", "[class*='jobDescription']",
+                        "main", "[role='main']", "article", ".content",
+                    ];
+
+                    const selText = trySelectors(SELECTORS);
+                    if (selText) {
+                        console.log("[ResumeNest] Extraction: selector_match |", selText.length, "chars");
+                        return { isJobPage: true, text: selText, reason: "selector_match" };
+                    }
+
+                    // Step 2: Largest readable block
+                    const SKIP = new Set(["NAV", "FOOTER", "HEADER", "ASIDE"]);
+                    function isSkipped(el) {
+                        let n = el.parentElement;
+                        while (n && n !== document.body) {
+                            if (SKIP.has(n.tagName)) return true;
+                            n = n.parentElement;
+                        }
+                        return false;
+                    }
+
+                    let best = "";
+                    let bestLen = 0;
+                    for (const el of document.querySelectorAll("div, section, article, main")) {
+                        if (isSkipped(el)) continue;
+                        try {
+                            const s = window.getComputedStyle(el);
+                            if (s.display === "none" || s.visibility === "hidden") continue;
+                        } catch { continue; }
+                        const t = (el.innerText || "").trim();
+                        if (t.length > 500 && t.length > bestLen) { bestLen = t.length; best = t; }
+                    }
+
+                    if (best) {
+                        const cleaned = cleanText(best);
+                        console.log("[ResumeNest] Extraction: largest_block |", cleaned.length, "chars");
+                        return { isJobPage: true, text: cleaned, reason: "largest_block" };
+                    }
+
+                    // Step 3: Body fallback
+                    const body = cleanText(document.body?.innerText || "");
+                    console.log("[ResumeNest] Extraction: body_fallback |", body.length, "chars");
+                    if (body.length < MIN_LENGTH) {
+                        return { isJobPage: false, text: "", reason: "not_enough_text" };
+                    }
+                    return { isJobPage: true, text: body.slice(0, 8000), reason: "body_fallback" };
+                },
             });
 
             const raw = results?.[0]?.result;
+            console.log("[ResumeNest] scraper result:", raw);
+            console.log("[ResumeNest] extracted length:", raw?.text?.length);
+
             const payload = (raw && typeof raw === "object" && "isJobPage" in raw)
                 ? raw
                 : { isJobPage: true, text: typeof raw === "string" ? raw : "" };
 
-            console.log(`[Resume AI Copilot] Scrape attempt ${attempt}/${SCRAPE_MAX_RETRIES}:`, payload.reason, `(${(payload.text || "").length} chars)`);
+            console.log(`[ResumeNest] Scrape attempt ${attempt}/${SCRAPE_MAX_RETRIES}:`, payload.reason, `(${(payload.text || "").length} chars)`);
 
             // Not a job page at all — stop retrying
             if (!payload.isJobPage) {
@@ -240,7 +341,7 @@ async function autoScrapeJobDescription() {
 
             // Dynamic content not ready yet — retry if on a known dynamic site
             const shouldRetry = isDynamicSite && attempt < SCRAPE_MAX_RETRIES &&
-                (payload.reason === "dynamic_not_ready" || payload.reason === "full_body_fallback" || text.length < 150);
+                (payload.reason === "not_enough_text" || payload.reason === "body_fallback" || text.length < 150);
 
             if (shouldRetry) {
                 setExtractStatus("loading", "⏳", `Waiting for page to load… (attempt ${attempt}/${SCRAPE_MAX_RETRIES})`);
@@ -261,7 +362,7 @@ async function autoScrapeJobDescription() {
         } catch (err) {
             // On error, retry if we have attempts left for dynamic sites
             if (isDynamicSite && attempt < SCRAPE_MAX_RETRIES) {
-                console.warn(`[Resume AI Copilot] Scrape attempt ${attempt} failed, retrying...`, err.message);
+                console.warn(`[ResumeNest] Scrape attempt ${attempt} failed, retrying...`, err.message);
                 await new Promise(r => setTimeout(r, SCRAPE_RETRY_DELAY_MS));
                 continue;
             }

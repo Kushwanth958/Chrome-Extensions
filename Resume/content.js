@@ -68,6 +68,7 @@
     ".jobs-description__content",
     ".jobs-box__html-content",
     ".jobs-description-content__text",
+    "About the job",
     "[class*='jobs-description']",
 
     // Indeed

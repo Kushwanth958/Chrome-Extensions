@@ -24,24 +24,29 @@
 //    - The function runs on Node.js 18.x runtime by default.
 // ============================================================
 
-import crypto from "crypto";
-
 // ── Constants ─────────────────────────────────────────────────
 const ANTHROPIC_MODEL = "claude-sonnet-4-6";
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MAX_TOKENS = 2800;
+const MAX_TOKENS = 4096;
 
 // ── In-memory response cache (survives Vercel warm starts) ───
-// Key: SHA-256 hash of (resumeText + jobDescription)
+// Key: simple hash of (resumeText + jobDescription)
 // Value: { data, expiresAt }
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const cache = new Map();
 
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + ch;
+    hash |= 0; // Convert to 32-bit integer
+  }
+  return "h_" + Math.abs(hash).toString(36);
+}
+
 function getCacheKey(resume, jobDesc) {
-  return crypto
-    .createHash("sha256")
-    .update(resume + jobDesc)
-    .digest("hex");
+  return simpleHash(resume + jobDesc);
 }
 
 function getCachedResult(key) {
@@ -55,7 +60,6 @@ function getCachedResult(key) {
 }
 
 function setCachedResult(key, data) {
-  // Evict expired entries periodically to prevent memory leaks
   if (cache.size > 200) {
     const now = Date.now();
     for (const [k, v] of cache) {
@@ -272,6 +276,14 @@ The final resume must read as if it was specifically written for THIS exact job 
   // ── Extract and split Claude's response ─────────────────────
   const claudeData = await claudeResponse.json();
   const responseText = claudeData?.content?.[0]?.text?.trim();
+  const stopReason = claudeData?.stop_reason;
+
+  console.log("[ResumeNest] Claude stop_reason:", stopReason, "| Response length:", responseText?.length);
+  console.log("[ResumeNest] Response preview:", responseText?.slice(0, 200));
+
+  if (stopReason === "max_tokens") {
+    console.warn("[ResumeNest] Claude response was TRUNCATED (hit max_tokens limit).");
+  }
 
   if (!responseText) {
     console.error("[ResumeNest] Claude returned empty content:", claudeData);
@@ -282,9 +294,20 @@ The final resume must read as if it was specifically written for THIS exact job 
   const ATS_DELIMITER = "ATS_SCORE_JSON:";
   const delimiterIndex = responseText.indexOf(ATS_DELIMITER);
 
+  // If ATS block is missing (truncation), return resume with default score
+  // instead of failing the entire request
   if (delimiterIndex === -1) {
-    console.error("[ResumeNest] ATS_SCORE_JSON block missing from Claude response.");
-    return res.status(502).json({ error: "ATS scoring block missing from Claude response. Please try again." });
+    console.warn("[ResumeNest] ATS_SCORE_JSON block missing — returning resume with default score.");
+    const defaultAts = {
+      score: 0,
+      matchedKeywords: [],
+      missingKeywords: [],
+      advice: "ATS score unavailable — Claude response was truncated. Try again."
+    };
+
+    const result = { tailoredResume: responseText, atsScore: defaultAts };
+    setCachedResult(cacheKey, result);
+    return res.status(200).json(result);
   }
 
   const tailoredResume = responseText.slice(0, delimiterIndex).trim();
