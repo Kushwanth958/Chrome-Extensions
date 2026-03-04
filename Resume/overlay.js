@@ -19,6 +19,7 @@
         host.includes("lever.co") ||
         host.includes("careers") ||
         host.includes("jobs") ||
+        host.includes("all") ||
         document.title.toLowerCase().includes("job") ||
         document.title.toLowerCase().includes("career");
 
