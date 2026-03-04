@@ -393,6 +393,49 @@ function readFileAsText(file) {
     });
 }
 
+function readFileAsArrayBuffer(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Could not read file as binary."));
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+async function extractPdfText(arrayBuffer) {
+    const pdfjsLib = globalThis.pdfjsLib;
+    if (!pdfjsLib?.getDocument) {
+        throw new Error("PDF library not loaded. Please reload the extension.");
+    }
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+        chrome.runtime.getURL("js/pdf.worker.min.js");
+
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+    const pages = [];
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const line = (content.items || [])
+            .map((it) => (it && typeof it.str === "string" ? it.str : ""))
+            .filter(Boolean)
+            .join(" ");
+        pages.push(line);
+    }
+
+    return pages.join("\n\n");
+}
+
+async function extractDocxText(arrayBuffer) {
+    const mammoth = globalThis.mammoth;
+    if (!mammoth?.extractRawText) {
+        throw new Error("DOCX library not loaded. Please reload the extension.");
+    }
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    return result?.value || "";
+}
+
 async function extractTextFromFile(file) {
     const ext = getFileExt(file?.name);
 
@@ -400,7 +443,17 @@ async function extractTextFromFile(file) {
         return await readFileAsText(file);
     }
 
-    throw new Error("Please upload a .txt file. PDF and DOCX uploads are not supported — use .txt for best results.");
+    if (ext === "pdf") {
+        const buf = await readFileAsArrayBuffer(file);
+        return await extractPdfText(buf);
+    }
+
+    if (ext === "doc" || ext === "docx") {
+        const buf = await readFileAsArrayBuffer(file);
+        return await extractDocxText(buf);
+    }
+
+    throw new Error("Unsupported file type. Please upload a PDF, DOCX, or TXT file.");
 }
 
 async function handleFilePicked(file) {
@@ -639,7 +692,7 @@ document.getElementById("downloadPDF").addEventListener("click", () => {
 
     let cursorY = margin;
 
-    const SECTION_HEADINGS = /^(SUMMARY|EXPERIENCE|SKILLS|EDUCATION)$/im;
+    const SECTION_HEADINGS = /^(SUMMARY|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE|SKILLS|TECHNICAL SKILLS|EDUCATION|LICENSES & CERTIFICATIONS|CONTACT INFORMATION)$/im;
     const lines = lastResult.split('\n');
 
     lines.forEach(line => {
@@ -692,7 +745,7 @@ document.getElementById("downloadDOC").addEventListener("click", async () => {
 
     const { Document, Packer, Paragraph, TextRun } = window.docx;
 
-    const SECTION_HEADINGS = /^(SUMMARY|EXPERIENCE|SKILLS|EDUCATION)$/im;
+    const SECTION_HEADINGS = /^(SUMMARY|PROFESSIONAL SUMMARY|EXPERIENCE|WORK EXPERIENCE|SKILLS|TECHNICAL SKILLS|EDUCATION|LICENSES & CERTIFICATIONS|CONTACT INFORMATION)$/im;
     const lines = lastResult.split('\n');
     const children = [];
 

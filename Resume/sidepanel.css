@@ -675,6 +675,10 @@ header {
     gap: 8px;
 }
 
+.error-banner[hidden] {
+    display: none;
+}
+
 .error-banner svg {
     width: 16px;
     height: 16px;

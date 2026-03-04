@@ -22,6 +22,10 @@
     <!-- Local download libraries -->
     <script src="js/jspdf.umd.min.js"></script>
     <script src="js/docx.umd.js"></script>
+
+    <!-- Local upload/parsing libraries -->
+    <script src="js/pdf.min.js"></script>
+    <script src="js/mammoth.browser.min.js"></script>
 </head>
 
 <body>
@@ -68,9 +72,9 @@
             </div>
             <div class="drop-text">
                 <strong>Drop your resume here</strong>
-                <span>TXT format — plain text works best</span>
+                <span>PDF · DOCX · TXT supported</span>
             </div>
-            <input type="file" id="fileInput" accept=".txt" hidden />
+            <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt" hidden />
         </div>
 
         <!-- Shown after a file is picked -->
@@ -156,7 +160,7 @@
                     <rect x="9" y="9" width="13" height="13" rx="2" />
                     <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
                 </svg>
-                Optimize Resume
+                Copy
             </button>
             <button class="btn-action" id="btnDownload" disabled>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
