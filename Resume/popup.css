@@ -39,7 +39,7 @@
 body {
   width: 400px;
   min-height: 300px;
-  max-height: 580px;
+  max-height: 600px;
   background: var(--bg);
   color: var(--text);
   font-family: 'Instrument Sans', sans-serif;
@@ -142,13 +142,117 @@ header {
   display: none;
 }
 
+/* ── Match Analysis panel ───────────────────────────────────── */
+.match-analysis {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  flex-shrink: 0;
+  animation: fadeIn 0.4s ease both;
+}
+
+.match-analysis-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.match-analysis-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.match-analysis-score {
+  font-family: 'Instrument Sans', sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.match-bar-track {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.match-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #a8d840);
+  border-radius: 3px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.match-skills-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.match-skills-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.match-skills-heading {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.match-skills-heading--good {
+  color: var(--success);
+}
+
+.match-skills-heading--weak {
+  color: var(--danger);
+}
+
+.match-skills-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.match-skill-chip {
+  font-family: 'DM Mono', monospace;
+  font-size: 9.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.match-skill-chip--good {
+  background: var(--success-dim);
+  color: var(--success);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+}
+
+.match-skill-chip--weak {
+  background: var(--danger-dim);
+  color: var(--danger);
+  border: 1px solid rgba(255, 92, 92, 0.2);
+}
+
 /* ── Screens ────────────────────────────────────────────────── */
 .screen {
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 18px;
-  max-height: calc(580px - 46px);
+  max-height: calc(600px - 46px);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
@@ -611,7 +715,7 @@ header {
 .preview-panel {
   flex: 1;
   min-height: 180px;
-  max-height: 240px;
+  max-height: 300px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -685,14 +789,12 @@ header {
   }
 }
 
-/* ── Bottom bar ─────────────────────────────────────────────── */
-.bottom-bar {
+/* ── Action bar (above preview) ────────────────────────────── */
+.action-bar {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
-  padding-top: 4px;
-  border-top: 1px solid var(--border);
-  margin-top: 2px;
+  flex-wrap: wrap;
 }
 
 /* ── Toast ──────────────────────────────────────────────────── */

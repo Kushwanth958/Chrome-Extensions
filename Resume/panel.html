@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <!--
+    panel.html – ResumeNest Side Panel (Copilot)
+    Full-height side panel UI replacing the popup.
+    Screens:
+      #screen-onboarding  – first-time users: upload resume
+      #screen-main        – returning users: auto-scraped job + generate + preview
+    Logic in panel.js (ES module). Styles in panel.css.
+  -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ResumeNest Copilot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="panel.css" />
+
+    <!-- Local download libraries -->
+    <script src="js/jspdf.umd.min.js"></script>
+    <script src="js/docx.umd.js"></script>
+</head>
+
+<body>
+
+    <!-- ── Header ──────────────────────────────────────────── -->
+    <header>
+        <div class="logo">
+            <span class="logo-wordmark">Resume<em>Nest</em></span>
+            <span class="logo-badge">Copilot</span>
+        </div>
+        <div class="status-dot" id="statusDot"></div>
+    </header>
+
+    <!-- ════════════════════════════════════════════════════════
+       SCREEN 1 — ONBOARDING
+  ════════════════════════════════════════════════════════ -->
+    <section class="screen" id="screen-onboarding">
+
+        <div class="onboarding-headline">
+            <h2>Build your <em>perfect</em><br />resume in seconds.</h2>
+            <p>Upload your base resume once. ResumeNest tailors it to every job you visit — powered by Claude.</p>
+        </div>
+
+        <!-- Drag-and-drop / click-to-upload area -->
+        <div class="drop-zone" id="dropZone">
+            <div class="drop-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+            </div>
+            <div class="drop-text">
+                <strong>Drop your resume here</strong>
+                <span>PDF · DOCX · TXT — use .txt for best results</span>
+            </div>
+            <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.txt" hidden />
+        </div>
+
+        <!-- Shown after a file is picked -->
+        <div class="file-chosen" id="fileChosen" hidden>
+            <span class="file-icon">📄</span>
+            <span class="file-name" id="fileName"></span>
+            <button class="btn-clear" id="btnClearFile" title="Remove">✕</button>
+        </div>
+
+        <button class="btn-primary" id="btnSaveSetup">Save &amp; Continue →</button>
+
+        <p class="error-msg" id="setupError" hidden></p>
+
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════
+       SCREEN 2 — MAIN
+  ════════════════════════════════════════════════════════ -->
+    <section class="screen" id="screen-main" hidden>
+
+        <!-- Job page detection strip -->
+        <div class="job-strip">
+            <span class="job-strip-label">Detected page</span>
+            <span class="job-strip-url" id="jobUrl">—</span>
+        </div>
+
+        <!-- Job description extraction status -->
+        <div class="extract-status" id="extractStatus">
+            <span class="extract-icon" id="extractIcon">⏳</span>
+            <span class="extract-text" id="extractText">Reading job description…</span>
+        </div>
+
+        <!-- Match Analysis panel (hidden until data is available) -->
+        <div class="match-analysis" id="matchAnalysis" hidden>
+            <div class="match-analysis-header">
+                <span class="match-analysis-label">Job Match Score</span>
+                <span class="match-analysis-score" id="matchScoreValue">—</span>
+            </div>
+            <div class="match-bar-track">
+                <div class="match-bar-fill" id="matchBarFill" style="width:0%"></div>
+            </div>
+            <div class="match-skills-grid">
+                <div class="match-skills-col">
+                    <span class="match-skills-heading match-skills-heading--good">Strengths</span>
+                    <div class="match-skills-list" id="matchStrengths"></div>
+                </div>
+                <div class="match-skills-col">
+                    <span class="match-skills-heading match-skills-heading--weak">Weak Areas</span>
+                    <div class="match-skills-list" id="matchWeakAreas"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Generate button -->
+        <button class="btn-generate" id="btnGenerate" disabled>
+            <span class="gen-idle">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                    <path d="M2 17l10 5 10-5" />
+                    <path d="M2 12l10 5 10-5" />
+                </svg>
+                Tailor Resume to This Job
+            </span>
+            <span class="gen-loading" hidden>
+                <span class="spinner"></span>
+                Claude is rewriting…
+            </span>
+        </button>
+
+        <!-- Error banner -->
+        <div class="error-banner" id="errorBanner" hidden>
+            <span id="errorMsg"></span>
+        </div>
+
+        <!-- Action bar -->
+        <div class="action-bar">
+            <button class="btn-action" id="btnCopy" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                </svg>
+                Copy
+            </button>
+            <button class="btn-action" id="btnDownload" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                TXT
+            </button>
+            <button class="btn-action" id="downloadPDF" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="12" y1="18" x2="12" y2="12" />
+                    <polyline points="9 15 12 18 15 15" />
+                </svg>
+                PDF
+            </button>
+            <button class="btn-action" id="downloadDOC" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="9" y1="13" x2="15" y2="13" />
+                    <line x1="9" y1="17" x2="15" y2="17" />
+                </svg>
+                DOCX
+            </button>
+            <button class="btn-reset" id="btnReset" title="Clear saved resume">Reset</button>
+        </div>
+
+        <!-- Scrollable tailored resume preview -->
+        <div class="preview-wrap">
+            <div class="preview-header">
+                <span class="preview-label">Tailored Resume</span>
+                <span class="preview-hint" id="previewHint">Ready when you are</span>
+            </div>
+            <div class="preview-panel" id="previewPanel">
+                <div class="preview-placeholder">
+                    <p>Your Claude-tailored resume will appear here.</p>
+                    <p>Navigate to a job posting, then click Tailor.</p>
+                </div>
+            </div>
+        </div>
+
+    </section>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
+    <script src="panel.js" type="module"></script>
+</body>
+
+</html>

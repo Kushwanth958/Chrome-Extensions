@@ -119,14 +119,23 @@ function computeKeywordCoverage(resumeText, jobDescription) {
     const jobKeywords = extractKeywords(jobDescription);
     const resumeKeywords = new Set(extractKeywords(resumeText));
 
-    if (jobKeywords.length === 0) return 100;
-
-    let matched = 0;
-    for (const kw of jobKeywords) {
-        if (resumeKeywords.has(kw)) matched++;
+    if (jobKeywords.length === 0) {
+        return { score: 100, matchedSkills: [], missingSkills: [] };
     }
 
-    return Math.round((matched / jobKeywords.length) * 100);
+    const matchedSkills = [];
+    const missingSkills = [];
+
+    for (const kw of jobKeywords) {
+        if (resumeKeywords.has(kw)) {
+            matchedSkills.push(kw);
+        } else {
+            missingSkills.push(kw);
+        }
+    }
+
+    const score = Math.round((matchedSkills.length / jobKeywords.length) * 100);
+    return { score, matchedSkills, missingSkills };
 }
 
 // ── Compute skill category match score ────────────────────────
@@ -230,7 +239,10 @@ export default async function handler(req, res) {
     semanticScore = Math.round(Math.max(0, Math.min(1, similarity)) * 100);
 
     // ── Factor 2: Keyword Coverage (30%) ────────────────────────
-    const keywordScore = computeKeywordCoverage(safeResume, safeJob);
+    const keywordResult = computeKeywordCoverage(safeResume, safeJob);
+    const keywordScore = keywordResult.score;
+    const matchedSkills = keywordResult.matchedSkills;
+    const missingSkills = keywordResult.missingSkills;
 
     // ── Factor 3: Skill Category Match (20%) ────────────────────
     const categoryScore = computeCategoryScore(safeResume);
@@ -244,6 +256,8 @@ export default async function handler(req, res) {
 
     console.log("[ResumeAI][match] Scores:", {
         matchScore, semanticScore, keywordScore, categoryScore,
+        matchedSkills: matchedSkills.length,
+        missingSkills: missingSkills.length,
     });
 
     return res.status(200).json({
@@ -251,5 +265,7 @@ export default async function handler(req, res) {
         semanticScore,
         keywordScore,
         categoryScore,
+        matchedSkills,
+        missingSkills,
     });
 }

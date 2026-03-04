@@ -1,17 +1,37 @@
 {
   "manifest_version": 3,
-  "name": "ResumeAI",
-  "version": "2.0.0",
-  "description": "AI-powered resume tailoring. Reads the job description on any page and rewrites your resume to match it — powered by Claude.",
+  "name": "ResumeNest",
+  "version": "3.0.0",
+  "description": "AI-powered resume copilot. Reads job descriptions and tailors your resume — powered by Claude.",
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "sidePanel"
   ],
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "ResumeAI – Tailor your resume"
+    "default_title": "ResumeNest – Open Copilot"
   },
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/jobs/*",
+        "https://*.indeed.com/*",
+        "https://boards.greenhouse.io/*",
+        "https://*.lever.co/*"
+      ],
+      "js": [
+        "overlay.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self';"
   },
