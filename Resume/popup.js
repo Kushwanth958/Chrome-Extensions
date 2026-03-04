@@ -108,6 +108,8 @@ async function init() {
     LEGACY_STORAGE_KEY_RESUME,
     STORAGE_KEY_LAST_RESUME,
     STORAGE_KEY_LAST_ATS,
+    "jobMatchScore",
+    "applyReadiness",
   ]);
 
   if (typeof stored[STORAGE_KEY_RESUME_TEXT] === "string" && stored[STORAGE_KEY_RESUME_TEXT].trim()) {
@@ -131,6 +133,18 @@ async function init() {
 
     if (stored[STORAGE_KEY_LAST_ATS] && typeof stored[STORAGE_KEY_LAST_ATS] === "object") {
       renderATSScore(stored[STORAGE_KEY_LAST_ATS]);
+    }
+
+    if (stored.jobMatchScore !== null && stored.jobMatchScore !== undefined) {
+      renderJobMatchScore(stored.jobMatchScore);
+    }
+
+    if (stored.applyReadiness && typeof stored.applyReadiness === "object") {
+      renderApplyReadiness(
+        stored.applyReadiness.score,
+        stored.applyReadiness.recommendation,
+        stored.applyReadiness.suggestions
+      );
     }
 
     await autoScrapeJobDescription();
@@ -522,25 +536,27 @@ btnGenerate.addEventListener("click", async () => {
     const atsScore = data?.atsScore;
     let jobMatchScore = null;
 
-    try {
-      const matchResponse = await fetch(
-        "https://chromeextensions.vercel.app/api/match",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            resumeText: tailored,
-            jobDescription: jobText,
-          }),
-        }
-      );
+    if (!pickedResumeText || !jobText) {
+      console.warn("[ResumeAI] Missing resume or job description for match score");
+    } else {
+      try {
+        const matchResponse = await fetch(
+          "https://chromeextensions.vercel.app/api/match",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              resumeText: pickedResumeText.trim(),
+              jobDescription: jobText.trim(),
+            }),
+          }
+        );
 
-      const matchData = await matchResponse.json();
-      jobMatchScore = matchData?.matchScore;
-    } catch (err) {
-      console.warn("[ResumeAI] Match score failed", err);
+        const matchData = await matchResponse.json();
+        jobMatchScore = matchData?.matchScore !== undefined ? matchData : null;
+      } catch (err) {
+        console.warn("[ResumeAI] Match score failed", err);
+      }
     }
 
     if (!tailored) {
@@ -555,14 +571,37 @@ btnGenerate.addEventListener("click", async () => {
       renderATSScore(atsScore);
     }
 
-    if (jobMatchScore) {
+    if (jobMatchScore !== null && jobMatchScore !== undefined) {
       renderJobMatchScore(jobMatchScore);
+    }
+
+    // ── Apply Readiness ───────────────────────────────────────
+    let applyReadiness = null;
+    if (jobMatchScore !== null && jobMatchScore !== undefined && atsScore && typeof atsScore === "object") {
+      const jmScore = typeof jobMatchScore === "object" ? jobMatchScore.matchScore : jobMatchScore;
+      const arScore = Math.round((jmScore * 0.6) + ((atsScore.score || 0) * 0.4));
+
+      let recommendation;
+      if (arScore >= 80) recommendation = "Strongly Apply";
+      else if (arScore >= 60) recommendation = "Apply with Improvements";
+      else if (arScore >= 40) recommendation = "Improve Resume First";
+      else recommendation = "Not a Good Match";
+
+      const missingKeywords = Array.isArray(atsScore.missingKeywords) ? atsScore.missingKeywords : [];
+      const suggestions = missingKeywords.slice(0, 3).map(k =>
+        `Add experience or mention of "${k}" if relevant to your work.`
+      );
+
+      applyReadiness = { score: arScore, recommendation, suggestions };
+      renderApplyReadiness(arScore, recommendation, suggestions);
     }
 
     // ── Persist across popup sessions ─────────────────────────
     chrome.storage.local.set({
       [STORAGE_KEY_LAST_RESUME]: tailored,
       [STORAGE_KEY_LAST_ATS]: atsScore ?? null,
+      jobMatchScore: jobMatchScore ?? null,
+      applyReadiness: applyReadiness,
     });
 
     btnCopy.disabled = false;
@@ -647,7 +686,6 @@ function renderATSScore(score) {
   previewPanel.appendChild(block);
 }
 function renderJobMatchScore(score) {
-
   const existing = document.getElementById("job-match-block");
   if (existing) existing.remove();
 
@@ -655,12 +693,61 @@ function renderJobMatchScore(score) {
   block.id = "job-match-block";
   block.className = "job-match-block";
 
+  // Support both old format (number) and new format (object with breakdown)
+  const isObject = score !== null && typeof score === "object";
+  const matchScore = isObject ? score.matchScore : score;
+  const semanticScore = isObject ? score.semanticScore : null;
+  const keywordScore = isObject ? score.keywordScore : null;
+  const categoryScore = isObject ? score.categoryScore : null;
+
+  const breakdownHtml = (semanticScore !== null)
+    ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted);">
+         <div>Semantic Similarity: <strong>${semanticScore}%</strong></div>
+         <div>Keyword Coverage: <strong>${keywordScore}%</strong></div>
+         <div>Skill Category Match: <strong>${categoryScore}%</strong></div>
+       </div>`
+    : "";
+
   block.innerHTML = `
     <div style="margin-top:12px;padding:10px;border:1px solid #ddd;border-radius:8px;">
       <span style="font-weight:bold;">Job Match Score</span>
       <div style="font-size:20px;font-weight:bold;margin-top:4px;">
+        ${matchScore}%
+      </div>
+      ${breakdownHtml}
+    </div>
+  `;
+
+  previewPanel.appendChild(block);
+}
+
+// ── Render Apply Readiness block ──────────────────────────────
+function renderApplyReadiness(score, recommendation, suggestions) {
+  const existing = document.getElementById("apply-readiness-block");
+  if (existing) existing.remove();
+
+  const block = document.createElement("div");
+  block.id = "apply-readiness-block";
+
+  const suggestionsHtml = Array.isArray(suggestions) && suggestions.length
+    ? `<div style="margin-top:8px;">
+         <strong>Suggestions:</strong>
+         <ul style="margin:4px 0 0 16px;padding:0;">
+           ${suggestions.map(s => `<li style="margin-bottom:4px;">${s}</li>`).join("")}
+         </ul>
+       </div>`
+    : "";
+
+  block.innerHTML = `
+    <div style="margin-top:12px;padding:12px;border:1px solid #ddd;border-radius:8px;">
+      <strong>Apply Readiness Score</strong>
+      <div style="font-size:22px;font-weight:bold;margin-top:4px;">
         ${score}%
       </div>
+      <div style="margin-top:6px;">
+        Recommendation: <strong>${recommendation}</strong>
+      </div>
+      ${suggestionsHtml}
     </div>
   `;
 
