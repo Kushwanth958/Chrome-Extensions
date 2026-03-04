@@ -110,6 +110,7 @@ async function init() {
     STORAGE_KEY_LAST_ATS,
     "jobMatchScore",
     "applyReadiness",
+    "scoreExplanation",
   ]);
 
   if (typeof stored[STORAGE_KEY_RESUME_TEXT] === "string" && stored[STORAGE_KEY_RESUME_TEXT].trim()) {
@@ -145,6 +146,10 @@ async function init() {
         stored.applyReadiness.recommendation,
         stored.applyReadiness.suggestions
       );
+    }
+
+    if (stored.scoreExplanation && typeof stored.scoreExplanation === "string") {
+      renderScoreExplanation(stored.scoreExplanation);
     }
 
     await autoScrapeJobDescription();
@@ -596,12 +601,20 @@ btnGenerate.addEventListener("click", async () => {
       renderApplyReadiness(arScore, recommendation, suggestions);
     }
 
+    // ── Score Explanation ──────────────────────────────────────
+    let scoreExplanation = null;
+    if (jobMatchScore !== null && jobMatchScore !== undefined && atsScore && typeof atsScore === "object") {
+      scoreExplanation = generateScoreExplanation(atsScore, jobMatchScore);
+      renderScoreExplanation(scoreExplanation);
+    }
+
     // ── Persist across popup sessions ─────────────────────────
     chrome.storage.local.set({
       [STORAGE_KEY_LAST_RESUME]: tailored,
       [STORAGE_KEY_LAST_ATS]: atsScore ?? null,
       jobMatchScore: jobMatchScore ?? null,
       applyReadiness: applyReadiness,
+      scoreExplanation: scoreExplanation,
     });
 
     btnCopy.disabled = false;
@@ -754,6 +767,80 @@ function renderApplyReadiness(score, recommendation, suggestions) {
   previewPanel.appendChild(block);
 }
 
+// ── Generate score explanation text ───────────────────────────
+function generateScoreExplanation(atsScore, jobMatchData) {
+  const lines = [];
+  const missingKeywords = Array.isArray(atsScore.missingKeywords) ? atsScore.missingKeywords : [];
+  const isObject = jobMatchData !== null && typeof jobMatchData === "object";
+  const semanticScore = isObject ? jobMatchData.semanticScore : null;
+  const keywordScore = isObject ? jobMatchData.keywordScore : null;
+  const categoryScore = isObject ? jobMatchData.categoryScore : null;
+  const matchScore = isObject ? jobMatchData.matchScore : jobMatchData;
+
+  // Semantic similarity insight
+  if (semanticScore !== null && semanticScore < 50) {
+    lines.push("The role emphasizes different responsibilities than those highlighted in your resume. Consider restructuring your experience to better align with the job's focus areas.");
+  } else if (semanticScore !== null && semanticScore < 70) {
+    lines.push("Your resume has some overlap with the role's focus, but there's room to better align your experience with the job's core responsibilities.");
+  }
+
+  // Keyword coverage insight
+  if (keywordScore !== null && keywordScore < 30) {
+    const topMissing = missingKeywords.slice(0, 4).join(", ");
+    lines.push("The job description requires specific tools and technologies that are not currently mentioned in your resume" + (topMissing ? " (such as " + topMissing + ")" : "") + ". Adding relevant experience with these tools can significantly improve your match.");
+  } else if (keywordScore !== null && keywordScore < 60) {
+    lines.push("Some of the key terms from the job description are missing from your resume. Incorporating relevant keywords naturally into your experience can boost your ATS and match scores.");
+  }
+
+  // Category match + keyword gap insight
+  if (categoryScore !== null && categoryScore >= 80 && keywordScore !== null && keywordScore < 50) {
+    lines.push("Great news \u2014 your core skill categories strongly match this role! The lower keyword score is due to specific technologies the job mentions. Your foundational skills position you well, and adding those specific tools to your resume could make a big difference.");
+  }
+
+  // Missing keywords actionable tip
+  if (missingKeywords.length > 0 && missingKeywords.length <= 5) {
+    lines.push("Consider adding experience with: " + missingKeywords.join(", ") + ". Even brief mentions of relevant projects or coursework can help.");
+  } else if (missingKeywords.length > 5) {
+    const shown = missingKeywords.slice(0, 5).join(", ");
+    lines.push("There are " + missingKeywords.length + " keywords from the job description not found in your resume. Key ones to focus on: " + shown + ". Prioritize the ones most relevant to your actual experience.");
+  }
+
+  // Overall encouragement
+  if (matchScore >= 70) {
+    lines.push("Overall, your profile is a strong match for this role. A few targeted tweaks could push your score even higher!");
+  } else if (matchScore >= 50) {
+    lines.push("You have a solid foundation for this role. With some targeted adjustments to highlight relevant experience and add missing keywords, you can improve your match significantly.");
+  } else {
+    lines.push("This role has a different focus than your current resume highlights. Consider whether you have transferable skills that could be repositioned to better match the requirements.");
+  }
+
+  return lines.join("\n\n");
+}
+
+// ── Render score explanation block ────────────────────────────
+function renderScoreExplanation(explanationText) {
+  const existing = document.getElementById("score-explanation-block");
+  if (existing) existing.remove();
+
+  if (!explanationText) return;
+
+  const block = document.createElement("div");
+  block.id = "score-explanation-block";
+
+  const paragraphs = explanationText.split("\n\n")
+    .filter(function (p) { return p.trim(); })
+    .map(function (p) { return '<p style="margin:0 0 8px 0;line-height:1.5;">' + p + '</p>'; })
+    .join("");
+
+  block.innerHTML =
+    '<div style="margin-top:12px;padding:12px;border:1px solid rgba(200,245,90,0.2);border-radius:8px;background:rgba(200,245,90,0.04);">' +
+    '<strong style="display:block;margin-bottom:8px;">\ud83d\udcca Score Explanation</strong>' +
+    '<div style="font-size:11.5px;color:var(--text-dim);">' +
+    paragraphs +
+    '</div></div>';
+
+  previewPanel.appendChild(block);
+}
 
 // ── Copy ──────────────────────────────────────────────────────
 btnCopy.addEventListener("click", async () => {
