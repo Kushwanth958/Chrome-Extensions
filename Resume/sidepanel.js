@@ -23,7 +23,6 @@ const BACKEND_URL = "https://chromeextensions.vercel.app/api/generate";
 
 // ── Storage keys ──────────────────────────────────────────────
 const STORAGE_KEY_RESUME_TEXT = "resumeText";
-const LEGACY_STORAGE_KEY_RESUME = "resumeai_base_resume";
 const STORAGE_KEY_LAST_RESUME = "lastTailoredResume";
 
 
@@ -91,7 +90,6 @@ async function init() {
 
     const stored = await chrome.storage.local.get([
         STORAGE_KEY_RESUME_TEXT,
-        LEGACY_STORAGE_KEY_RESUME,
         STORAGE_KEY_LAST_RESUME,
     ]);
 
@@ -115,9 +113,6 @@ async function init() {
 
         await autoScrapeJobDescription();
     } else {
-        if (stored[LEGACY_STORAGE_KEY_RESUME]) {
-            showToast("Please re-upload your resume (TXT recommended).", 2600);
-        }
         showScreen("onboarding");
     }
 
@@ -398,49 +393,6 @@ function readFileAsText(file) {
     });
 }
 
-function readFileAsArrayBuffer(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error("Could not read file as binary."));
-        reader.readAsArrayBuffer(file);
-    });
-}
-
-async function extractPdfTextFromArrayBuffer(arrayBuffer) {
-    const pdfjsLib = globalThis.pdfjsLib;
-    if (!pdfjsLib?.getDocument) {
-        throw new Error("PDF reader not available.");
-    }
-
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-        chrome.runtime.getURL("lib/pdf.worker.js");
-
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
-    const pages = [];
-
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const content = await page.getTextContent();
-        const line = (content.items || [])
-            .map((it) => (it && typeof it.str === "string" ? it.str : ""))
-            .filter(Boolean)
-            .join(" ");
-        pages.push(line);
-    }
-
-    return pages.join("\n\n");
-}
-
-async function extractDocTextFromArrayBuffer(arrayBuffer) {
-    const mammoth = globalThis.mammoth;
-    if (!mammoth?.extractRawText) {
-        throw new Error("DOC/DOCX reader not available.");
-    }
-    const result = await mammoth.extractRawText({ arrayBuffer });
-    return result?.value || "";
-}
-
 async function extractTextFromFile(file) {
     const ext = getFileExt(file?.name);
 
@@ -448,17 +400,7 @@ async function extractTextFromFile(file) {
         return await readFileAsText(file);
     }
 
-    if (ext === "pdf") {
-        const buf = await readFileAsArrayBuffer(file);
-        return await extractPdfTextFromArrayBuffer(buf);
-    }
-
-    if (ext === "doc" || ext === "docx") {
-        const buf = await readFileAsArrayBuffer(file);
-        return await extractDocTextFromArrayBuffer(buf);
-    }
-
-    throw new Error("Unsupported file type.");
+    throw new Error("Please upload a .txt file. PDF and DOCX uploads are not supported — use .txt for best results.");
 }
 
 async function handleFilePicked(file) {
@@ -476,7 +418,6 @@ async function handleFilePicked(file) {
 
         pickedResumeText = text;
         await chrome.storage.local.set({ [STORAGE_KEY_RESUME_TEXT]: text });
-        await chrome.storage.local.remove(LEGACY_STORAGE_KEY_RESUME);
 
         fileName.textContent = file.name;
         fileChosen.hidden = false;
@@ -513,7 +454,6 @@ btnSaveSetup.addEventListener("click", async () => {
     await chrome.storage.local.set({
         [STORAGE_KEY_RESUME_TEXT]: pickedResumeText.trim(),
     });
-    await chrome.storage.local.remove(LEGACY_STORAGE_KEY_RESUME);
 
     showScreen("main");
     await autoScrapeJobDescription();
@@ -822,7 +762,6 @@ btnReset.addEventListener("click", async () => {
 
     await chrome.storage.local.remove([
         STORAGE_KEY_RESUME_TEXT,
-        LEGACY_STORAGE_KEY_RESUME,
         STORAGE_KEY_LAST_RESUME,
     ]);
 
