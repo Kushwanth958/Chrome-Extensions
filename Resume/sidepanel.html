@@ -275,6 +275,30 @@
             </div>
         </div>
 
+        <!-- ATS Score Panel (shown after generation) -->
+        <div id="atsScorePanel" hidden
+            style="margin: 0 20px 12px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);">
+            <div class="score-card-header" style="margin-bottom: 12px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" width="14" height="14">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+                <span>After-Generation ATS Score</span>
+            </div>
+            <div style="display:flex; align-items:center; gap: 14px; margin-bottom: 10px;">
+                <div id="atsScoreRing" class="score-ring" style="width:64px; height:64px; flex-shrink:0;">
+                    <span id="atsScoreNumber" class="score-number">—</span>
+                </div>
+                <div style="flex:1;">
+                    <div class="score-bar-wrap">
+                        <div class="score-bar" id="atsScoreBar"></div>
+                    </div>
+                    <p id="atsScoreLabel" style="font-size: 11px; color: var(--text-dim); margin-top: 5px;"></p>
+                </div>
+            </div>
+            <div class="score-breakdown" id="atsScoreBreakdown"></div>
+        </div>
+
     </section>
 
     <!-- Toast notification -->

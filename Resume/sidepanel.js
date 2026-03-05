@@ -453,6 +453,63 @@ function renderScoreCard(data, slot) {
     }
 }
 
+// ── Explicit after-generation ATS scoring (atsScorePanel) ─────
+async function fetchATSScore(resumeText, jobDescription) {
+    try {
+        const res = await fetch("https://chromeextensions.vercel.app/api/score", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ resumeText, jobDescription }),
+        });
+        const data = await res.json();
+        console.log("[ResumeNest] /api/score raw response:", data);
+        renderATSScore(data.score, data.breakdown);
+    } catch (err) {
+        console.error("[ResumeNest] ATS score failed:", err);
+    }
+}
+
+function renderATSScore(score, breakdown) {
+    if (typeof score !== "number") return;
+
+    const panel = document.getElementById("atsScorePanel");
+    const ring = document.getElementById("atsScoreRing");
+    const num = document.getElementById("atsScoreNumber");
+    const bar = document.getElementById("atsScoreBar");
+    const label = document.getElementById("atsScoreLabel");
+    const chips = document.getElementById("atsScoreBreakdown");
+
+    if (!panel) return;
+    panel.removeAttribute("hidden");
+
+    // Number
+    num.textContent = score;
+
+    // Color class
+    const cls = score <= 50 ? "score-red" : score <= 74 ? "score-orange" : "score-green";
+    ring.className = `score-ring ${cls}`;
+
+    // Label
+    const label_text = score <= 50 ? "Needs improvement" : score <= 74 ? "Good match" : "Strong match";
+    label.textContent = label_text;
+
+    // Animated bar
+    bar.className = `score-bar ${cls}`;
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => { bar.style.width = `${score}%`; });
+    });
+
+    // Breakdown chips
+    if (breakdown) {
+        chips.innerHTML = [
+            `<span class="score-chip">🔑 Keywords <span class="score-chip-value">${breakdown.keywords?.matched ?? 0}/${breakdown.keywords?.total ?? 0}</span></span>`,
+            `<span class="score-chip">📋 Sections <span class="score-chip-value">${breakdown.sections?.found?.length ?? 0}/4</span></span>`,
+            `<span class="score-chip">📊 Metrics <span class="score-chip-value">${breakdown.achievements?.quantifiedLines ?? 0} lines</span></span>`,
+            `<span class="score-chip">📝 Length <span class="score-chip-value">${breakdown.length?.wordCount ?? 0} words</span></span>`,
+        ].join("");
+    }
+}
+
 // ============================================================
 //  URL PASTE FALLBACK — fetch job description via backend
 // ============================================================
@@ -789,12 +846,8 @@ btnGenerate.addEventListener("click", async () => {
         document.getElementById("downloadDOC").disabled = false;
         previewHint.textContent = "Claude-tailored · Ready to use";
 
-        // After score — non-blocking
-        if (scrapedJobText) {
-            fetchAtsScore(tailored, scrapedJobText)
-                .then(d => renderScoreCard(d, "after"))
-                .catch(() => { });
-        }
+        // After-generation ATS score — using the original resume + job description
+        await fetchATSScore(baseResumeText, jobText);
 
     } catch (err) {
         console.error("[Resume AI Copilot] Generate call failed", err);
