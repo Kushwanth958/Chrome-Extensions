@@ -192,7 +192,7 @@ async function autoScrapeJobDescription() {
         jobUrl.textContent = "Unable to read tab";
     }
 
-    if (!tab?.url?.startsWith("http")) {
+    if (!tab?.id) {
         setExtractStatus("warn",
             "⚠",
             "Open a job posting page, then click the extension icon again."
@@ -263,7 +263,13 @@ async function autoScrapeJobDescription() {
                         .forEach(btn => btn.click());
                     // Step 1: Known selectors (ordered specific → generic)
                     const SELECTORS = [
-                        // LinkedIn
+                        // LinkedIn search results — inline job detail panel (highest priority)
+                        ".job-details-jobs-unified-top-card__job-description",
+                        ".jobs-search__job-details",
+                        ".jobs-details__main-content",
+                        ".scaffold-layout__detail .jobs-description",
+                        "[data-job-id] .jobs-description__content",
+                        // LinkedIn standard job view
                         ".jobs-description__content", ".jobs-box__html-content",
                         ".jobs-description-content__text", "[class*='jobs-description']",
                         // Indeed
@@ -285,9 +291,8 @@ async function autoScrapeJobDescription() {
                         "[class*='JobPosting']", "[class*='job-posting']",
                         // Notion career pages
                         "[class*='notion-page-content']",
-                        // Generic job description patterns
+                        // Generic
                         "[itemprop='description']",
-                        // Common class / ID patterns (specific only, no wildcards)
                         ".jobs-description", ".job-description",
                         "#job-description", "#jobDescription", ".jobDescription",
                         ".job-details", ".jobDetailBody", "#job-detail",

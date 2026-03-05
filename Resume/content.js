@@ -18,16 +18,25 @@ try {
   if (showMoreBtn) showMoreBtn.click();
 } catch { }
 
-// ── SPA Navigation Detection (currentJobId-based) ─────────────
-// Watches for LinkedIn's currentJobId query param changing instead
-// of raw URL changes — avoids false positives from anchor/hash changes.
+// ── SPA Navigation Detection (jobId-based) ────────────────────
+// Watches for a job ID appearing/changing via URL params or DOM attribute.
+// Handles both linkedin.com/jobs/view/<id> and search results pages
+// where the detail panel loads inline without a full URL change.
 if (!window.__resumeNest_spaWatcher) {
   window.__resumeNest_spaWatcher = true;
   let lastJobId = null;
 
   function getCurrentJobId() {
+    // 1. Standard LinkedIn job view URL param
     const params = new URLSearchParams(window.location.search);
-    return params.get("currentJobId");
+    const fromParam = params.get("currentJobId") || params.get("jobId");
+    if (fromParam) return fromParam;
+
+    // 2. Inline job detail panel (LinkedIn search results sidebar)
+    const fromDom = document.querySelector("[data-job-id]")?.dataset?.jobId;
+    if (fromDom) return fromDom;
+
+    return null;
   }
 
   setInterval(() => {
