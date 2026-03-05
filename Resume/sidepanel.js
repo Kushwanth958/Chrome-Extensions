@@ -226,13 +226,13 @@ async function autoScrapeJobDescription() {
             const results = await chrome.scripting.executeScript({
                 target: { tabId: tab.id, allFrames: false },
                 func: async function () {
-                    const MIN_LENGTH = 200;
-                    const MAX_WAIT = 6000;
-                    const POLL_INTERVAL = 300;
-                    const BODY_THRESHOLD = 1000;
 
-                    function cleanText(raw) {
-                        return raw.replace(/\s+/g, " ").replace(/\n{2,}/g, "\n\n").trim();
+                    function cleanText(text) {
+                        return text
+                            .replace(/\t/g, " ")
+                            .replace(/[ ]{2,}/g, " ")
+                            .replace(/\n{3,}/g, "\n\n")
+                            .trim();
                     }
 
                     function trySelectors(selectors) {
@@ -241,71 +241,129 @@ async function autoScrapeJobDescription() {
                                 const el = document.querySelector(sel);
                                 if (!el) continue;
                                 const text = cleanText(el.innerText || el.textContent || "");
-                                if (text.length >= MIN_LENGTH) return text;
+                                if (text.length >= 200) return text;
                             } catch { }
                         }
                         return null;
                     }
 
-                    // Step 0: Wait for DOM to populate
-                    await new Promise((resolve) => {
+                    const url = location.href;
+                    const isLinkedInSearch =
+                        url.includes("/jobs/search") ||
+                        url.includes("/jobs/collections") ||
+                        url.includes("/jobs/recommended");
+
+                    const isLinkedInDirect = url.includes("/jobs/view/");
+
+                    // ── 1. LinkedIn SEARCH page — poll for right panel ──────
+                    if (isLinkedInSearch) {
+                        let found = null;
                         const start = Date.now();
-                        const timer = setInterval(() => {
-                            const len = (document.body?.innerText || "").length;
-                            if (len > BODY_THRESHOLD || Date.now() - start >= MAX_WAIT) {
-                                clearInterval(timer);
-                                resolve();
+
+                        while (Date.now() - start < 6000) {
+                            const el = document.querySelector([
+                                ".jobs-description__content",
+                                ".jobs-description-content__text",
+                                ".jobs-box__html-content",
+                                ".jobs-search__job-details--wrapper",
+                                ".scaffold-layout__detail",
+                                ".job-details-jobs-unified-top-card__job-description",
+                                "[data-view-name='job-details']"
+                            ].join(", "));
+
+                            if (el && el.innerText.trim().length > 300) {
+                                found = el;
+                                break;
                             }
-                        }, POLL_INTERVAL);
-                    });
-                    document
-                        .querySelectorAll("button[aria-label*='more'], button[aria-expanded='false']")
-                        .forEach(btn => btn.click());
-                    // Step 1: Known selectors (ordered specific → generic)
+                            await new Promise(r => setTimeout(r, 400));
+                        }
+
+                        if (found) {
+                            // Expand "See more"
+                            const seeMore = found.querySelector(
+                                "button.jobs-description__footer-button, " +
+                                "button[aria-label*='more'], " +
+                                "button[aria-label*='See more']"
+                            );
+                            if (seeMore) {
+                                seeMore.click();
+                                await new Promise(r => setTimeout(r, 700));
+                            }
+                            const text = cleanText(found.innerText.trim());
+                            return { isJobPage: true, text: text.slice(0, 6000), reason: "linkedin_search_panel" };
+                        }
+
+                        // Panel never loaded — return retry signal
+                        return { isJobPage: true, text: "", reason: "not_enough_text" };
+                    }
+
+                    // ── 2. LinkedIn DIRECT job page ──────────────────────────
+                    if (isLinkedInDirect) {
+                        let el = null;
+                        const start = Date.now();
+
+                        while (Date.now() - start < 5000) {
+                            el = document.querySelector(
+                                ".jobs-description__content, " +
+                                ".jobs-description-content__text, " +
+                                ".jobs-box__html-content"
+                            );
+                            if (el && el.innerText.trim().length > 200) break;
+                            await new Promise(r => setTimeout(r, 400));
+                        }
+
+                        if (el && el.innerText.trim().length > 200) {
+                            const seeMore = document.querySelector(
+                                ".jobs-description__footer-button, " +
+                                "button[aria-label*='more']"
+                            );
+                            if (seeMore) {
+                                seeMore.click();
+                                await new Promise(r => setTimeout(r, 700));
+                            }
+                            const text = cleanText(el.innerText.trim());
+                            return { isJobPage: true, text: text.slice(0, 6000), reason: "linkedin_direct" };
+                        }
+
+                        return { isJobPage: true, text: "", reason: "not_enough_text" };
+                    }
+
+                    // ── 3. All other job boards — targeted selectors ─────────
                     const SELECTORS = [
-                        // LinkedIn search results — inline job detail panel (highest priority)
-                        ".job-details-jobs-unified-top-card__job-description",
-                        ".jobs-search__job-details",
-                        ".jobs-details__main-content",
-                        ".scaffold-layout__detail .jobs-description",
-                        "[data-job-id] .jobs-description__content",
-                        // LinkedIn standard job view
-                        ".jobs-description__content", ".jobs-box__html-content",
-                        ".jobs-description-content__text", "[class*='jobs-description']",
-                        // Indeed
                         "#jobDescriptionText", ".jobsearch-jobDescriptionText",
-                        // Greenhouse / Lever
                         ".job__description", ".job-post-content",
                         ".posting-description",
-                        // Workday
                         "[data-automation-id='jobPostingDescription']",
-                        // iCIMS
                         ".iCIMS_JobContent", ".iCIMS_Expandable_Container",
-                        // SmartRecruiters
                         ".job-sections", ".details-content",
-                        // Jobvite
                         ".jv-job-detail-description",
-                        // Ashby
                         ".ashby-job-posting-brief-description",
-                        // Rippling
                         "[class*='JobPosting']", "[class*='job-posting']",
-                        // Notion career pages
                         "[class*='notion-page-content']",
-                        // Generic
                         "[itemprop='description']",
-                        ".jobs-description", ".job-description",
-                        "#job-description", "#jobDescription", ".jobDescription",
-                        ".job-details", ".jobDetailBody", "#job-detail",
+                        ".job-description", "#job-description",
+                        "#jobDescription", ".jobDescription",
+                        ".job-details", ".jobDetailBody",
                     ];
 
                     const selText = trySelectors(SELECTORS);
                     if (selText) {
-                        console.log("[ResumeNest] Extraction: selector_match |", selText.length, "chars");
-                        return { isJobPage: true, text: selText, reason: "selector_match" };
+                        return { isJobPage: true, text: selText.slice(0, 6000), reason: "selector_match" };
                     }
 
-                    console.warn("[ResumeNest] No job description selector matched.");
-                    return { isJobPage: false, text: "", reason: "selector_not_found" };
+                    // ── 4. Last resort — largest readable block ───────────────
+                    let best = "";
+                    document.querySelectorAll("div, section, article, main").forEach(el => {
+                        if (el.closest("nav, header, footer, aside, script, [role='navigation']")) return;
+                        const t = (el.innerText || "").trim();
+                        if (t.length > best.length && t.length < 15000) best = t;
+                    });
+
+                    if (best.length > 300) {
+                        return { isJobPage: true, text: cleanText(best).slice(0, 6000), reason: "largest_block" };
+                    }
+
+                    return { isJobPage: false, text: "", reason: "not_found" };
                 },
             });
 
@@ -352,8 +410,13 @@ async function autoScrapeJobDescription() {
             }
 
             // Dynamic content not ready yet — retry if on a known dynamic site
-            const shouldRetry = isDynamicSite && attempt < SCRAPE_MAX_RETRIES &&
-                (payload.reason === "not_enough_text" || payload.reason === "body_fallback" || text.length < 150);
+            const shouldRetry = isDynamicSite && attempt < SCRAPE_MAX_RETRIES && (
+                payload.reason === "not_enough_text" ||
+                payload.reason === "largest_block" ||
+                payload.reason === "selector_not_found" ||
+                payload.reason === "not_found" ||
+                text.length < 150
+            );
 
             if (shouldRetry) {
                 setExtractStatus("loading", "⏳", `Waiting for page to load… (attempt ${attempt}/${SCRAPE_MAX_RETRIES})`);
