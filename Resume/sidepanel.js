@@ -19,7 +19,8 @@
 // ============================================================
 
 // ── Backend URL ───────────────────────────────────────────────
-const BACKEND_URL = "https://chromeextensions.vercel.app/api/generate";
+const BACKEND_URL  = "https://chromeextensions.vercel.app/api/generate";
+const EXTRACT_URL  = BACKEND_URL.replace("/api/generate", "/api/extract");
 
 // ── Storage keys ──────────────────────────────────────────────
 const STORAGE_KEY_RESUME_TEXT = "resumeText";
@@ -180,8 +181,37 @@ chrome.runtime.onMessage.addListener((message) => {
 
 //  AUTO-SCRAPE (with retry for dynamic pages like LinkedIn)
 // ============================================================
-const SCRAPE_MAX_RETRIES = 5;
+const SCRAPE_MAX_RETRIES    = 3;
 const SCRAPE_RETRY_DELAY_MS = 1200;
+
+// ── JD verification — pure JS, no API cost ───────────────────────────────
+// After the DOM scorer picks its best block, this confirms it is actually
+// a job description — not "About Us" copy, not a nav bar, not legal text.
+// Returns true only if the text contains STRUCTURAL evidence of a real JD.
+function isConfirmedJobDescription(text) {
+    if (!text || text.length < 300) return false;
+    const t = text.toLowerCase();
+
+    // 1. Explicit section headers — the clearest possible signal
+    const hasHeaders = /\b(responsibilities|requirements|qualifications|what you['']ll do|what you will do|key responsibilities|key requirements|about the role|about this role|your role|the role)\b/.test(t);
+
+    // 2. Bullet lines with job-action verbs (e.g. "- Collaborate with...", "• Develop...")
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    const actionBullets = lines.filter(l =>
+        /^[-•*·▪▸→✓✔]/.test(l) &&
+        /\b(develop|design|build|implement|manage|lead|collaborate|analyze|create|support|maintain|work with|own|drive|define|deliver|oversee|ensure|identify|write|test|review|coordinate)\b/i.test(l)
+    );
+    const hasActionBullets = actionBullets.length >= 2;
+
+    // 3. Experience / education requirements
+    const hasRequirements =
+        /\b(\d+\+?\s*years?\s*(of\s*)?(experience|exp)\b|bachelor|master|degree|bs\b|ms\b|b\.s\.|m\.s\.)/i.test(text) &&
+        /\b(experience|skills?|knowledge|proficiency|familiarity)\b/i.test(t);
+
+    // Must satisfy at least 2 of the 3 signals — one match could be coincidence
+    const signals = [hasHeaders, hasActionBullets, hasRequirements].filter(Boolean).length;
+    return signals >= 2;
+}
 
 async function autoScrapeJobDescription() {
     let tab;
@@ -193,362 +223,215 @@ async function autoScrapeJobDescription() {
     }
 
     if (!tab?.id) {
-        setExtractStatus("warn",
-            "⚠",
-            "Open a job posting page, then click the extension icon again."
-        );
+        setExtractStatus("warn", "⚠", "Open a job posting page, then click the extension icon again.");
         return;
     }
 
-    // Check if this is a known dynamic job site (needs retries)
-    const tabUrl = (tab.url || "").toLowerCase();
-    const isDynamicSite =
-        tabUrl.includes("linkedin.com") ||
-        tabUrl.includes("indeed.com") ||
-        tabUrl.includes("greenhouse.io") ||
-        tabUrl.includes("lever.co") ||
-        tabUrl.includes("myworkdayjobs.com") ||
-        tabUrl.includes("icims.com") ||
-        tabUrl.includes("smartrecruiters.com") ||
-        tabUrl.includes("jobvite.com") ||
-        tabUrl.includes("ashbyhq.com") ||
-        tabUrl.includes("rippling.com") ||
-        tabUrl.includes("notion.site");
+    const isDynamicSite = /linkedin\.com|indeed\.com|greenhouse\.io|lever\.co|myworkdayjobs|icims\.com|smartrecruiters|jobvite|ashbyhq|rippling\.com|notion\.site/.test(
+        (tab.url || "").toLowerCase()
+    );
 
     setExtractStatus("loading", "⏳", "Reading job description…");
 
+    // ── Phase 1: DOM extraction ──────────────────────────────────────────
+    // Grab the best candidate block. For LinkedIn, use known selectors.
+    // For everything else, use the keyword scorer.
+    // No Claude yet — zero API cost.
+    let domText = "";
+
     for (let attempt = 1; attempt <= SCRAPE_MAX_RETRIES; attempt++) {
         try {
-            // ── Inline extraction function ────────────────────────
-            // Using func instead of files because executeScript({files:...})
-            // returns a Promise object from async IIFEs, not the resolved value.
-            // With func, Chrome properly awaits the async function.
             const results = await chrome.scripting.executeScript({
                 target: { tabId: tab.id, allFrames: false },
                 func: async function () {
-                    //  testing lines added between this comments
-                    function highlightElement(el, label = "ResumeNest Target") {
-                        if (!el) return;
 
-                        el.style.outline = "3px solid red";
-                        el.style.outlineOffset = "3px";
-
-                        const badge = document.createElement("div");
-                        badge.textContent = label;
-                        badge.style.position = "absolute";
-                        badge.style.background = "red";
-                        badge.style.color = "white";
-                        badge.style.fontSize = "12px";
-                        badge.style.padding = "2px 6px";
-                        badge.style.zIndex = "999999";
-
-                        const rect = el.getBoundingClientRect();
-                        badge.style.left = rect.left + window.scrollX + "px";
-                        badge.style.top = rect.top + window.scrollY - 22 + "px";
-
-                        document.body.appendChild(badge);
-                    }
-
-                    //  testing lines added between this comments
-
-
-                    function cleanText(text) {
-                        return text
-                            .replace(/\t/g, " ")
-                            .replace(/[ ]{2,}/g, " ")
-                            .replace(/\n{3,}/g, "\n\n")
-                            .trim();
-                    }
-
-                    function trySelectors(selectors) {
-                        for (const sel of selectors) {
-                            try {
-                                const el = document.querySelector(sel);
-                                if (!el) continue;
-                                const text = cleanText(el.innerText || el.textContent || "");
-                                // if (text.length >= 200) return text;
-                                //  testing lines added between this comments
-                                if (text.length >= 200) {
-                                    highlightElement(el, "ResumeNest Target");
-                                    return text;
-                                }
-                                //  testing lines added between this comments
-                            } catch { }
-                        }
-                        return null;
+                    function cleanText(t) {
+                        return t.replace(/\t/g, " ").replace(/[ ]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
                     }
 
                     const url = location.href;
-                    const isLinkedInSearch =
-                        url.includes("/jobs/search") ||
-                        url.includes("/jobs/collections") ||
-                        url.includes("/jobs/recommended");
 
-                    const isLinkedInDirect = url.includes("/jobs/view/");
-
-                    // ── 1. LinkedIn SEARCH page — poll for right panel ──────
-                    if (isLinkedInSearch) {
-                        let found = null;
+                    // ── LinkedIn (search panel + direct page) ────────────
+                    if (url.includes("linkedin.com/jobs")) {
                         const start = Date.now();
-
                         while (Date.now() - start < 6000) {
-                            const el = document.querySelector([
-                                ".jobs-description__content",
-                                ".jobs-description-content__text",
-                                ".jobs-box__html-content",
-                                ".jobs-search__job-details--wrapper",
-                                ".scaffold-layout__detail",
-                                ".job-details-jobs-unified-top-card__job-description",
-                                "[data-view-name='job-details']"
-                            ].join(", "));
-
+                            const el = document.querySelector(
+                                ".jobs-description__content, .jobs-description-content__text, " +
+                                ".jobs-box__html-content, [data-view-name='job-details']"
+                            );
                             if (el && el.innerText.trim().length > 300) {
-                                found = el;
-                                break;
+                                const btn = el.querySelector("button.jobs-description__footer-button, button[aria-label*='more']");
+                                if (btn) { btn.click(); await new Promise(r => setTimeout(r, 600)); }
+                                return cleanText(el.innerText.trim()).slice(0, 8000);
                             }
                             await new Promise(r => setTimeout(r, 400));
                         }
-
-                        if (found) {
-                            // Expand "See more"
-                            const seeMore = found.querySelector(
-                                "button.jobs-description__footer-button, " +
-                                "button[aria-label*='more'], " +
-                                "button[aria-label*='See more']"
-                            );
-                            if (seeMore) {
-                                seeMore.click();
-                                await new Promise(r => setTimeout(r, 700));
-                            }
-                            const text = cleanText(found.innerText.trim());
-                            return { isJobPage: true, text: text.slice(0, 6000), reason: "linkedin_search_panel" };
-                        }
-
-                        // Panel never loaded — return retry signal
-                        return { isJobPage: true, text: "", reason: "not_enough_text" };
+                        return "";
                     }
 
-                    // ── 2. LinkedIn DIRECT job page ──────────────────────────
-                    if (isLinkedInDirect) {
-                        let el = null;
-                        const start = Date.now();
-
-                        while (Date.now() - start < 5000) {
-                            el = document.querySelector(
-                                ".jobs-description__content, " +
-                                ".jobs-description-content__text, " +
-                                ".jobs-box__html-content"
-                            );
-                            if (el && el.innerText.trim().length > 200) break;
-                            await new Promise(r => setTimeout(r, 400));
-                        }
-
-                        if (el && el.innerText.trim().length > 200) {
-                            const seeMore = document.querySelector(
-                                ".jobs-description__footer-button, " +
-                                "button[aria-label*='more']"
-                            );
-                            if (seeMore) {
-                                seeMore.click();
-                                await new Promise(r => setTimeout(r, 700));
-                            }
-                            const text = cleanText(el.innerText.trim());
-                            return { isJobPage: true, text: text.slice(0, 6000), reason: "linkedin_direct" };
-                        }
-
-                        return { isJobPage: true, text: "", reason: "not_enough_text" };
-                    }
-
-                    // ── 3. Universal job-description scorer ──────────────────
-                    // Works on ANY site without knowing selectors in advance.
-                    // Every visible block is scored across 4 signals:
-                    //   A) Job keyword hits  — words that appear in real JDs
-                    //   B) Bullet density    — JDs are almost always bulleted
-                    //   C) Length fit        — reward 300–4000 char sweet spot
-                    //   D) Anti-marketing    — penalise "About Us" boilerplate
-
+                    // ── Universal scorer for all other sites ─────────────
                     const JD_KEYWORDS = [
-                        // Role structure
                         "responsibilities", "requirements", "qualifications",
-                        "what you'll do", "what you will do", "you will",
-                        "we are looking", "we're looking", "about the role",
-                        "about this role", "about the position", "the role",
-                        "key responsibilities", "key requirements",
-                        "duties", "accountabilities",
-                        // Skills / experience signals
-                        "years of experience", "years experience",
-                        "bachelor", "master", "degree", "preferred",
-                        "must have", "nice to have", "bonus points",
-                        "proficiency", "familiarity", "knowledge of",
-                        "experience with", "experience in",
-                        // Common tech / domain terms (broad)
-                        "sql", "python", "java", "javascript", "aws", "azure",
-                        "data", "analysis", "analytics", "collaborate",
-                        "cross-functional", "stakeholder", "implement",
-                        "develop", "design", "build", "deploy", "manage",
-                        "communicate", "problem-solving",
+                        "what you'll do", "you will", "about the role",
+                        "key responsibilities", "duties", "years of experience",
+                        "bachelor", "master", "degree", "must have", "nice to have",
+                        "proficiency", "knowledge of", "experience with", "experience in",
+                    ];
+
+                    const HARD_DISQUALIFIERS = [
+                        /NYSE\s*:\s*\w+/, /BSE\s*:\s*\d+/, /NSE\s*:\s*\w+/,
+                        /\d{2,3},\d{3}\s*employees/i,
                     ];
 
                     const MARKETING_PENALTIES = [
-                        "we are proud", "our mission is", "our vision",
-                        "founded in", "headquartered in", "publicly traded",
-                        "fortune 500", "industry leader", "world-class",
-                        "join our team", "equal opportunity employer",
-                        "privacy policy", "terms of use", "cookie",
-                        "nasdaq", "nyse", "bse", "nse",
-                        "stock exchange",
+                        "our mission", "our vision", "founded in", "publicly traded",
+                        "fortune 500", "industry leader", "equal opportunity",
+                        "privacy policy", "terms of use", "stock exchange",
+                        "business partners across", "visit us at www",
                     ];
 
-                    function scoreAsJobDescription(el) {
+                    function scoreBlock(el) {
                         const text = (el.innerText || "").trim();
-                        if (text.length < 150 || text.length > 25000) return 0;
-
+                        if (text.length < 300 || text.length > 25000) return 0;
                         const lower = text.toLowerCase();
+                        for (const re of HARD_DISQUALIFIERS) { if (re.test(text)) return 0; }
+
                         let score = 0;
+                        for (const kw of JD_KEYWORDS) { if (lower.includes(kw)) score += 8; }
 
-                        // A) Job keyword hits (weighted by rarity/specificity)
-                        let kwHits = 0;
-                        for (const kw of JD_KEYWORDS) {
-                            if (lower.includes(kw)) kwHits++;
-                        }
-                        score += kwHits * 8;
-
-                        // B) Bullet / list density
-                        // Count lines that start with a bullet, dash, or number
                         const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-                        const bulletLines = lines.filter(l =>
-                            /^[-•*·▪▸→✓✔]/.test(l) || /^\d+[\.\)]/.test(l)
-                        );
-                        const bulletRatio = lines.length > 0 ? bulletLines.length / lines.length : 0;
-                        score += bulletRatio * 40; // up to 40 pts if mostly bullets
+                        const bullets = lines.filter(l => /^[-•*·▪▸→✓✔]/.test(l) || /^\d+[.)]/.test(l));
+                        score += (bullets.length / Math.max(lines.length, 1)) * 40;
 
-                        // C) Length sweet spot: 300–4000 chars scores highest
-                        if (text.length >= 300 && text.length <= 4000) {
-                            score += 20;
-                        } else if (text.length > 4000 && text.length <= 8000) {
-                            score += 10; // still good, just long
-                        }
-
-                        // D) Penalise marketing/boilerplate language
-                        let penalties = 0;
-                        for (const p of MARKETING_PENALTIES) {
-                            if (lower.includes(p)) penalties++;
-                        }
-                        score -= penalties * 12;
-
-                        // E) Bonus: element contains a <ul> or <ol> (structured JD)
+                        if (text.length >= 300 && text.length <= 6000) score += 20;
+                        for (const p of MARKETING_PENALTIES) { if (lower.includes(p)) score -= 15; }
                         if (el.querySelector("ul, ol")) score += 15;
-
-                        // F) Bonus: contains typical section headers as text nodes
-                        if (/responsibilities|requirements|qualifications/i.test(text)) score += 20;
+                        if (/responsibilities|requirements|qualifications/i.test(text)) score += 25;
 
                         return Math.max(score, 0);
                     }
 
-                    let bestEl = null;
-                    let bestScore = 0;
-                    let bestText = "";
-
+                    let bestEl = null, bestScore = 0, bestText = "";
                     document.querySelectorAll("div, section, article, main").forEach(el => {
-                        // Skip navigation, chrome, and invisible elements
-                        if (el.closest("nav, header, footer, aside, script, [role='navigation']")) return;
-                        if (el.offsetParent === null && el.tagName !== "BODY") return; // hidden
-
-                        const s = scoreAsJobDescription(el);
-                        if (s > bestScore) {
-                            bestScore = s;
-                            bestText = (el.innerText || "").trim();
-                            bestEl = el;
-                        }
+                        if (el.closest("nav, header, footer, aside, [role='navigation']")) return;
+                        if (el.offsetParent === null) return;
+                        const s = scoreBlock(el);
+                        if (s > bestScore) { bestScore = s; bestText = (el.innerText || "").trim(); bestEl = el; }
                     });
 
-                    if (bestText.length > 150 && bestScore > 0) {
-                        highlightElement(bestEl, "ResumeNest Target");
-                        return { isJobPage: true, text: cleanText(bestText).slice(0, 6000), reason: "scored_block", score: bestScore };
-                    }
-
-                    return { isJobPage: false, text: "", reason: "not_found" };
+                    return bestText.length >= 300 ? cleanText(bestText).slice(0, 8000) : "";
                 },
             });
 
-            const raw = results?.[0]?.result;
-            console.log("[ResumeNest] scraper result:", raw);
-            console.log("[ResumeNest] extracted length:", raw?.text?.length);
+            const text = (results?.[0]?.result || "").trim();
+            console.log(`[ResumeNest] DOM attempt ${attempt}: ${text.length} chars`);
 
-            const payload = (raw && typeof raw === "object" && "isJobPage" in raw)
-                ? raw
-                : { isJobPage: true, text: typeof raw === "string" ? raw : "" };
-
-            console.log(`[ResumeNest] Scrape attempt ${attempt}/${SCRAPE_MAX_RETRIES}:`, payload.reason, `(${(payload.text || "").length} chars)`);
-
-            // Not a job page at all — stop retrying
-            if (!payload.isJobPage) {
-                scrapedJobText = null;
-                setExtractStatus(
-                    "warn",
-                    "⚠",
-                    "No job description detected on this page. Please navigate to a job posting."
-                );
-                updateGenerateButtonState();
-                return;
+            if (text.length >= 300) {
+                domText = text;
+                break;
             }
 
-            const text = payload.text || "";
-
-            // Success — got enough text
-            if (text.length >= 150) {
-                scrapedJobText = text;
-                const wordCount = text.split(/\s+/).length;
-                setExtractStatus(
-                    "success",
-                    "✓",
-                    `Job description captured (${wordCount} words) — ready to tailor.`
-                );
-                updateGenerateButtonState();
-                // Fire before-score (don't await — non-blocking)
-                chrome.storage.local.get(STORAGE_KEY_RESUME_TEXT).then(stored => {
-                    const resume = stored[STORAGE_KEY_RESUME_TEXT];
-                    if (resume) fetchAtsScore(resume, text).then(d => renderScoreCard(d, "before"));
-                }).catch(() => { });
-                return;
-            }
-
-            // Dynamic content not ready yet — retry if on a known dynamic site
-            const shouldRetry = isDynamicSite && attempt < SCRAPE_MAX_RETRIES && (
-                payload.reason === "not_enough_text" ||
-                payload.reason === "selector_not_found" ||
-                payload.reason === "not_found" ||
-                text.length < 150
-            );
-
-            if (shouldRetry) {
+            // Page not ready — retry for dynamic sites
+            if (isDynamicSite && attempt < SCRAPE_MAX_RETRIES) {
                 setExtractStatus("loading", "⏳", `Waiting for page to load… (attempt ${attempt}/${SCRAPE_MAX_RETRIES})`);
                 await new Promise(r => setTimeout(r, SCRAPE_RETRY_DELAY_MS));
                 continue;
             }
 
-            // Not enough text and no more retries
-            setExtractStatus(
-                "warn",
-                "⚠",
-                "Couldn't extract enough text. Make sure you're on a job description page."
-            );
-            scrapedJobText = null;
-            updateGenerateButtonState();
-            return;
+            break;
 
         } catch (err) {
-            // On error, retry if we have attempts left for dynamic sites
             if (isDynamicSite && attempt < SCRAPE_MAX_RETRIES) {
-                console.warn(`[ResumeNest] Scrape attempt ${attempt} failed, retrying...`, err.message);
                 await new Promise(r => setTimeout(r, SCRAPE_RETRY_DELAY_MS));
                 continue;
             }
             setExtractStatus("error", "✕", `Could not read page: ${err.message}`);
+            updateGenerateButtonState();
+            return;
+        }
+    }
+
+    // ── Phase 2: JS verification — is the DOM text actually a JD? ────────
+    // This is the key question. No API cost. Pure string analysis.
+    // The isConfirmedJobDescription() check looks for structural JD evidence:
+    //   - explicit section headers (Responsibilities, Requirements, etc.)
+    //   - bullet points with job action verbs (develop, manage, collaborate...)
+    //   - experience/education requirements (3+ years, Bachelor's degree...)
+    // Two of the three signals must be present. If they are, we're done.
+    // If not, the DOM grabbed the wrong content — call Claude to recover.
+
+    if (domText && isConfirmedJobDescription(domText)) {
+        // ✅ High confidence — real JD found, no API call needed
+        console.log("[ResumeNest] JD verified by structural analysis. No Claude needed.");
+        scrapedJobText = domText;
+        const wordCount = domText.split(/\s+/).length;
+        setExtractStatus("success", "✓", `Job description captured (${wordCount} words) — ready to tailor.`);
+        updateGenerateButtonState();
+        chrome.storage.local.get(STORAGE_KEY_RESUME_TEXT).then(stored => {
+            const resume = stored[STORAGE_KEY_RESUME_TEXT];
+            if (resume) fetchAtsScore(resume, domText).then(d => renderScoreCard(d, "before"));
+        }).catch(() => {});
+        return;
+    }
+
+    // ── Phase 3: Claude fallback — only fires when verification fails ─────
+    // At this point we KNOW the DOM text is not a proper job description.
+    // We send the full body text (not the scorer's best-guess block) to Claude
+    // so it has the best possible chance of finding the real content.
+    console.log("[ResumeNest] DOM text failed JD verification — falling back to Claude.");
+    setExtractStatus("loading", "⏳", "Analysing page with AI…");
+
+    // Get full body text for Claude (more context = better extraction)
+    let bodyText = domText; // fallback if executeScript fails
+    try {
+        const bodyResults = await chrome.scripting.executeScript({
+            target: { tabId: tab.id, allFrames: false },
+            func: function () {
+                const noise = document.querySelectorAll("nav, header, footer, aside, script, style, noscript");
+                noise.forEach(el => el.setAttribute("data-rn-skip", "1"));
+                const text = (document.body.innerText || "").trim().slice(0, 12000);
+                noise.forEach(el => el.removeAttribute("data-rn-skip"));
+                return text;
+            },
+        });
+        bodyText = bodyResults?.[0]?.result || domText;
+    } catch { /* use domText as fallback */ }
+
+    try {
+        const response = await fetch(EXTRACT_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rawText: bodyText }),
+        });
+
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body?.error || `Server error: HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!data.isJobPage || !data.jobDescription) {
+            setExtractStatus("warn", "⚠", "This doesn't look like a job posting page.");
             scrapedJobText = null;
             updateGenerateButtonState();
             return;
         }
+
+        scrapedJobText = data.jobDescription;
+        const wordCount = scrapedJobText.split(/\s+/).length;
+        setExtractStatus("success", "✓", `Job description captured (${wordCount} words) — ready to tailor.`);
+        updateGenerateButtonState();
+        chrome.storage.local.get(STORAGE_KEY_RESUME_TEXT).then(stored => {
+            const resume = stored[STORAGE_KEY_RESUME_TEXT];
+            if (resume) fetchAtsScore(resume, scrapedJobText).then(d => renderScoreCard(d, "before"));
+        }).catch(() => {});
+
+    } catch (err) {
+        console.error("[ResumeNest] Claude fallback failed:", err.message);
+        setExtractStatus("error", "✕", `Could not extract job description: ${err.message}`);
+        scrapedJobText = null;
+        updateGenerateButtonState();
     }
 }
 
