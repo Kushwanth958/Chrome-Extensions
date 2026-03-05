@@ -226,6 +226,31 @@ async function autoScrapeJobDescription() {
             const results = await chrome.scripting.executeScript({
                 target: { tabId: tab.id, allFrames: false },
                 func: async function () {
+                    //  testing lines added between this comments
+                    function highlightElement(el, label = "ResumeNest Target") {
+                        if (!el) return;
+
+                        el.style.outline = "3px solid red";
+                        el.style.outlineOffset = "3px";
+
+                        const badge = document.createElement("div");
+                        badge.textContent = label;
+                        badge.style.position = "absolute";
+                        badge.style.background = "red";
+                        badge.style.color = "white";
+                        badge.style.fontSize = "12px";
+                        badge.style.padding = "2px 6px";
+                        badge.style.zIndex = "999999";
+
+                        const rect = el.getBoundingClientRect();
+                        badge.style.left = rect.left + window.scrollX + "px";
+                        badge.style.top = rect.top + window.scrollY - 22 + "px";
+
+                        document.body.appendChild(badge);
+                    }
+
+                    //  testing lines added between this comments
+
 
                     function cleanText(text) {
                         return text
@@ -241,7 +266,13 @@ async function autoScrapeJobDescription() {
                                 const el = document.querySelector(sel);
                                 if (!el) continue;
                                 const text = cleanText(el.innerText || el.textContent || "");
-                                if (text.length >= 200) return text;
+                                // if (text.length >= 200) return text;
+                                //  testing lines added between this comments
+                                if (text.length >= 200) {
+                                    highlightElement(el, "ResumeNest Target");
+                                    return text;
+                                }
+                                //  testing lines added between this comments
                             } catch { }
                         }
                         return null;
@@ -328,39 +359,112 @@ async function autoScrapeJobDescription() {
                         return { isJobPage: true, text: "", reason: "not_enough_text" };
                     }
 
-                    // ── 3. All other job boards — targeted selectors ─────────
-                    const SELECTORS = [
-                        "#jobDescriptionText", ".jobsearch-jobDescriptionText",
-                        ".job__description", ".job-post-content",
-                        ".posting-description",
-                        "[data-automation-id='jobPostingDescription']",
-                        ".iCIMS_JobContent", ".iCIMS_Expandable_Container",
-                        ".job-sections", ".details-content",
-                        ".jv-job-detail-description",
-                        ".ashby-job-posting-brief-description",
-                        "[class*='JobPosting']", "[class*='job-posting']",
-                        "[class*='notion-page-content']",
-                        "[itemprop='description']",
-                        ".job-description", "#job-description",
-                        "#jobDescription", ".jobDescription",
-                        ".job-details", ".jobDetailBody",
+                    // ── 3. Universal job-description scorer ──────────────────
+                    // Works on ANY site without knowing selectors in advance.
+                    // Every visible block is scored across 4 signals:
+                    //   A) Job keyword hits  — words that appear in real JDs
+                    //   B) Bullet density    — JDs are almost always bulleted
+                    //   C) Length fit        — reward 300–4000 char sweet spot
+                    //   D) Anti-marketing    — penalise "About Us" boilerplate
+
+                    const JD_KEYWORDS = [
+                        // Role structure
+                        "responsibilities", "requirements", "qualifications",
+                        "what you'll do", "what you will do", "you will",
+                        "we are looking", "we're looking", "about the role",
+                        "about this role", "about the position", "the role",
+                        "key responsibilities", "key requirements",
+                        "duties", "accountabilities",
+                        // Skills / experience signals
+                        "years of experience", "years experience",
+                        "bachelor", "master", "degree", "preferred",
+                        "must have", "nice to have", "bonus points",
+                        "proficiency", "familiarity", "knowledge of",
+                        "experience with", "experience in",
+                        // Common tech / domain terms (broad)
+                        "sql", "python", "java", "javascript", "aws", "azure",
+                        "data", "analysis", "analytics", "collaborate",
+                        "cross-functional", "stakeholder", "implement",
+                        "develop", "design", "build", "deploy", "manage",
+                        "communicate", "problem-solving",
                     ];
 
-                    const selText = trySelectors(SELECTORS);
-                    if (selText) {
-                        return { isJobPage: true, text: selText.slice(0, 6000), reason: "selector_match" };
+                    const MARKETING_PENALTIES = [
+                        "we are proud", "our mission is", "our vision",
+                        "founded in", "headquartered in", "publicly traded",
+                        "fortune 500", "industry leader", "world-class",
+                        "join our team", "equal opportunity employer",
+                        "privacy policy", "terms of use", "cookie",
+                        "nasdaq", "nyse", "bse", "nse",
+                        "stock exchange",
+                    ];
+
+                    function scoreAsJobDescription(el) {
+                        const text = (el.innerText || "").trim();
+                        if (text.length < 150 || text.length > 25000) return 0;
+
+                        const lower = text.toLowerCase();
+                        let score = 0;
+
+                        // A) Job keyword hits (weighted by rarity/specificity)
+                        let kwHits = 0;
+                        for (const kw of JD_KEYWORDS) {
+                            if (lower.includes(kw)) kwHits++;
+                        }
+                        score += kwHits * 8;
+
+                        // B) Bullet / list density
+                        // Count lines that start with a bullet, dash, or number
+                        const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+                        const bulletLines = lines.filter(l =>
+                            /^[-•*·▪▸→✓✔]/.test(l) || /^\d+[\.\)]/.test(l)
+                        );
+                        const bulletRatio = lines.length > 0 ? bulletLines.length / lines.length : 0;
+                        score += bulletRatio * 40; // up to 40 pts if mostly bullets
+
+                        // C) Length sweet spot: 300–4000 chars scores highest
+                        if (text.length >= 300 && text.length <= 4000) {
+                            score += 20;
+                        } else if (text.length > 4000 && text.length <= 8000) {
+                            score += 10; // still good, just long
+                        }
+
+                        // D) Penalise marketing/boilerplate language
+                        let penalties = 0;
+                        for (const p of MARKETING_PENALTIES) {
+                            if (lower.includes(p)) penalties++;
+                        }
+                        score -= penalties * 12;
+
+                        // E) Bonus: element contains a <ul> or <ol> (structured JD)
+                        if (el.querySelector("ul, ol")) score += 15;
+
+                        // F) Bonus: contains typical section headers as text nodes
+                        if (/responsibilities|requirements|qualifications/i.test(text)) score += 20;
+
+                        return Math.max(score, 0);
                     }
 
-                    // ── 4. Last resort — largest readable block ───────────────
-                    let best = "";
+                    let bestEl = null;
+                    let bestScore = 0;
+                    let bestText = "";
+
                     document.querySelectorAll("div, section, article, main").forEach(el => {
+                        // Skip navigation, chrome, and invisible elements
                         if (el.closest("nav, header, footer, aside, script, [role='navigation']")) return;
-                        const t = (el.innerText || "").trim();
-                        if (t.length > best.length && t.length < 15000) best = t;
+                        if (el.offsetParent === null && el.tagName !== "BODY") return; // hidden
+
+                        const s = scoreAsJobDescription(el);
+                        if (s > bestScore) {
+                            bestScore = s;
+                            bestText = (el.innerText || "").trim();
+                            bestEl = el;
+                        }
                     });
 
-                    if (best.length > 300) {
-                        return { isJobPage: true, text: cleanText(best).slice(0, 6000), reason: "largest_block" };
+                    if (bestText.length > 150 && bestScore > 0) {
+                        highlightElement(bestEl, "ResumeNest Target");
+                        return { isJobPage: true, text: cleanText(bestText).slice(0, 6000), reason: "scored_block", score: bestScore };
                     }
 
                     return { isJobPage: false, text: "", reason: "not_found" };
@@ -412,7 +516,6 @@ async function autoScrapeJobDescription() {
             // Dynamic content not ready yet — retry if on a known dynamic site
             const shouldRetry = isDynamicSite && attempt < SCRAPE_MAX_RETRIES && (
                 payload.reason === "not_enough_text" ||
-                payload.reason === "largest_block" ||
                 payload.reason === "selector_not_found" ||
                 payload.reason === "not_found" ||
                 text.length < 150

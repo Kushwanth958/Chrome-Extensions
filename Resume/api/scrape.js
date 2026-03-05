@@ -112,10 +112,15 @@ export default async function handler(req, res) {
             }
         }
 
+
+
         // Step 2: Largest meaningful text block
         if (!jobText) {
             let bestText = "";
             let bestLen = 0;
+            // testing lines added between this comments
+            let bestEl = null;
+            //  testing lines added between this comments
 
             $("div, section, article, main").each((_, el) => {
                 const $el = $(el);
@@ -127,10 +132,20 @@ export default async function handler(req, res) {
                 if (text.length > 500 && text.length > bestLen) {
                     bestLen = text.length;
                     bestText = text;
+                    // testing lines added between this comments
+                    bestEl = el;
+                    //  testing lines added between this comments
                 }
             });
 
             if (bestText) {
+                //  testing lines added between this comments
+                if (bestEl) {
+                    bestEl.style.outline = "3px solid red";
+                    bestEl.style.outlineOffset = "3px";
+                }
+                //  testing lines added between this comments
+
                 jobText = cleanText(bestText);
             }
         }
