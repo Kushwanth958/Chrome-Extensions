@@ -283,18 +283,12 @@ async function autoScrapeJobDescription() {
                         "[class*='JobPosting']", "[class*='job-posting']",
                         // Notion career pages
                         "[class*='notion-page-content']",
-                        // Generic semantic selectors
+                        // Generic job description patterns
                         "[itemprop='description']",
-                        "[class*='description']",
-                        "[class*='job-details']", "[id*='job-description']",
-                        // Common class / ID patterns
+                        // Common class / ID patterns (specific only, no wildcards)
                         ".jobs-description", ".job-description",
                         "#job-description", "#jobDescription", ".jobDescription",
-                        ".job-details", "[class*='job-detail']",
-                        ".jobDetailBody", "#job-detail",
-                        "[class*='job-description']", "[class*='jobDescription']",
-                        // Broad fallbacks
-                        "main", "[role='main']", "article", ".content",
+                        ".job-details", ".jobDetailBody", "#job-detail",
                     ];
 
                     const selText = trySelectors(SELECTORS);
@@ -360,7 +354,6 @@ async function autoScrapeJobDescription() {
                     "⚠",
                     "No job description detected on this page. Please navigate to a job posting."
                 );
-                urlFallback.hidden = false;
                 updateGenerateButtonState();
                 return;
             }
