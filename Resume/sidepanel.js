@@ -60,7 +60,16 @@ const urlInput = document.getElementById("urlInput");
 const btnFetchUrl = document.getElementById("btnFetchUrl");
 const urlFetchStatus = document.getElementById("urlFetchStatus");
 
-
+// ── DOM — ATS Score card ──────────────────────────────────────
+const scoreCard = document.getElementById("scoreCard");
+const scoreBeforeRing = document.getElementById("scoreBeforeRing");
+const scoreBeforeNum = document.getElementById("scoreBeforeNum");
+const scoreBeforeBar = document.getElementById("scoreBeforeBar");
+const scoreAfterCol = document.getElementById("scoreAfterCol");
+const scoreAfterRing = document.getElementById("scoreAfterRing");
+const scoreAfterNum = document.getElementById("scoreAfterNum");
+const scoreAfterBar = document.getElementById("scoreAfterBar");
+const scoreBreakdown = document.getElementById("scoreBreakdown");
 
 // ── State ─────────────────────────────────────────────────────
 let pickedResumeText = null;
@@ -337,6 +346,11 @@ async function autoScrapeJobDescription() {
                 );
                 urlFallback.hidden = true;
                 updateGenerateButtonState();
+                // Fire before-score (don't await — non-blocking)
+                chrome.storage.local.get(STORAGE_KEY_RESUME_TEXT).then(stored => {
+                    const resume = stored[STORAGE_KEY_RESUME_TEXT];
+                    if (resume) fetchAtsScore(resume, text).then(d => renderScoreCard(d, "before"));
+                }).catch(() => { });
                 return;
             }
 
@@ -374,6 +388,68 @@ async function autoScrapeJobDescription() {
             updateGenerateButtonState();
             return;
         }
+    }
+}
+
+// ============================================================
+//  ATS SCORE — call /api/score and render result
+// ============================================================
+const SCORE_URL = BACKEND_URL.replace("/api/generate", "/api/score");
+
+async function fetchAtsScore(resumeText, jobDescription) {
+    try {
+        const res = await fetch(SCORE_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ resumeText, jobDescription }),
+        });
+        if (!res.ok) return null;
+        return await res.json();
+    } catch {
+        return null;
+    }
+}
+
+function scoreColorClass(score) {
+    if (score <= 50) return "score-red";
+    if (score <= 74) return "score-orange";
+    return "score-green";
+}
+
+function renderScoreCard(data, slot) {
+    if (!data || typeof data.score !== "number") return;
+
+    const score = data.score;
+    const cls = scoreColorClass(score);
+    const ring = slot === "before" ? scoreBeforeRing : scoreAfterRing;
+    const numEl = slot === "before" ? scoreBeforeNum : scoreAfterNum;
+    const barEl = slot === "before" ? scoreBeforeBar : scoreAfterBar;
+
+    // Show the card
+    scoreCard.hidden = false;
+    if (slot === "after") scoreAfterCol.hidden = false;
+
+    // Number
+    numEl.textContent = score;
+
+    // Ring colour
+    ring.className = `score-ring ${cls}`;
+
+    // Animated bar (defer 1 frame so transition fires)
+    barEl.className = `score-bar ${cls}`;
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => { barEl.style.width = `${score}%`; });
+    });
+
+    // Breakdown chips (only update on "before" to avoid overwriting both)
+    if (slot === "before" && data.breakdown) {
+        const b = data.breakdown;
+        scoreBreakdown.innerHTML = [
+            `<span class="score-chip">🔑 Keywords <span class="score-chip-value">${b.keywords?.matched ?? 0}/${b.keywords?.total ?? 0}</span></span>`,
+            `<span class="score-chip">📋 Sections <span class="score-chip-value">${b.sections?.found?.length ?? 0}/4</span></span>`,
+            `<span class="score-chip">📊 Metrics <span class="score-chip-value">${b.achievements?.quantifiedLines ?? 0} lines</span></span>`,
+            `<span class="score-chip">📝 Length <span class="score-chip-value">${b.length?.wordCount ?? 0} words</span></span>`,
+        ].join("");
     }
 }
 
@@ -430,6 +506,12 @@ btnFetchUrl.addEventListener("click", async () => {
         urlFallback.hidden = true;
         urlFetchStatus.textContent = "";
         updateGenerateButtonState();
+
+        // Fire before-score (non-blocking)
+        chrome.storage.local.get(STORAGE_KEY_RESUME_TEXT).then(stored => {
+            const resume = stored[STORAGE_KEY_RESUME_TEXT];
+            if (resume) fetchAtsScore(resume, jobDesc).then(d => renderScoreCard(d, "before"));
+        }).catch(() => { });
     } catch (err) {
         urlFetchStatus.textContent = err.message;
         urlFetchStatus.className = "url-fallback-status error";
@@ -706,6 +788,13 @@ btnGenerate.addEventListener("click", async () => {
         document.getElementById("downloadPDF").disabled = false;
         document.getElementById("downloadDOC").disabled = false;
         previewHint.textContent = "Claude-tailored · Ready to use";
+
+        // After score — non-blocking
+        if (scrapedJobText) {
+            fetchAtsScore(tailored, scrapedJobText)
+                .then(d => renderScoreCard(d, "after"))
+                .catch(() => { });
+        }
 
     } catch (err) {
         console.error("[Resume AI Copilot] Generate call failed", err);

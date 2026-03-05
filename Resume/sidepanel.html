@@ -158,6 +158,41 @@
             </button>
         </div>
 
+        <!-- ── ATS Score Card ─────────────────────────────── -->
+        <div class="score-card" id="scoreCard" hidden>
+            <div class="score-card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" width="14" height="14">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+                <span>ATS Match Score</span>
+            </div>
+            <div class="score-comparison">
+                <!-- Before column -->
+                <div class="score-col" id="scoreBeforeCol">
+                    <span class="score-col-label">Before</span>
+                    <div class="score-ring" id="scoreBeforeRing">
+                        <span class="score-number" id="scoreBeforeNum">—</span>
+                    </div>
+                    <div class="score-bar-wrap">
+                        <div class="score-bar" id="scoreBeforeBar"></div>
+                    </div>
+                </div>
+                <!-- After column (hidden until generated) -->
+                <div class="score-col score-col-after" id="scoreAfterCol" hidden>
+                    <span class="score-col-label">After ✨</span>
+                    <div class="score-ring" id="scoreAfterRing">
+                        <span class="score-number" id="scoreAfterNum">—</span>
+                    </div>
+                    <div class="score-bar-wrap">
+                        <div class="score-bar" id="scoreAfterBar"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- Breakdown chips -->
+            <div class="score-breakdown" id="scoreBreakdown"></div>
+        </div>
+
         <!-- Error banner -->
         <div class="error-banner" id="errorBanner" hidden>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"

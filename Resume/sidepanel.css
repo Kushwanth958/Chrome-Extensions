@@ -923,3 +923,146 @@ header {
 .url-fallback-status.success {
     color: var(--success);
 }
+
+/* ── ATS Score Card ────────────────────────────────────────── */
+.score-card {
+    margin: 0 20px 12px;
+    padding: 14px 16px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.score-card-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 14px;
+}
+
+.score-comparison {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.score-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.score-col-after {
+    border-left: 1px solid var(--border);
+    padding-left: 12px;
+}
+
+.score-col-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+/* Circular score badge */
+.score-ring {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.5s ease;
+}
+
+.score-ring.score-red {
+    border-color: var(--danger);
+}
+
+.score-ring.score-orange {
+    border-color: var(--warn);
+}
+
+.score-ring.score-green {
+    border-color: var(--success);
+}
+
+.score-number {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.score-ring.score-red .score-number {
+    color: var(--danger);
+}
+
+.score-ring.score-orange .score-number {
+    color: var(--warn);
+}
+
+.score-ring.score-green .score-number {
+    color: var(--success);
+}
+
+/* Animated horizontal bar */
+.score-bar-wrap {
+    width: 100%;
+    height: 6px;
+    background: var(--surface-3);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.score-bar {
+    height: 100%;
+    width: 0%;
+    border-radius: 3px;
+    background: var(--text-muted);
+    transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+        background-color 0.5s ease;
+}
+
+.score-bar.score-red {
+    background: var(--danger);
+}
+
+.score-bar.score-orange {
+    background: var(--warn);
+}
+
+.score-bar.score-green {
+    background: var(--success);
+}
+
+/* Breakdown chips */
+.score-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.score-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.score-chip-value {
+    font-weight: 700;
+    color: var(--text);
+}
