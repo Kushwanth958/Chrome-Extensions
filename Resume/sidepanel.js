@@ -258,7 +258,9 @@ async function autoScrapeJobDescription() {
                             }
                         }, POLL_INTERVAL);
                     });
-
+                    document
+                        .querySelectorAll("button[aria-label*='more'], button[aria-expanded='false']")
+                        .forEach(btn => btn.click());
                     // Step 1: Known selectors (ordered specific → generic)
                     const SELECTORS = [
                         // LinkedIn
@@ -297,42 +299,8 @@ async function autoScrapeJobDescription() {
                         return { isJobPage: true, text: selText, reason: "selector_match" };
                     }
 
-                    // Step 2: Largest readable block
-                    const SKIP = new Set(["NAV", "FOOTER", "HEADER", "ASIDE"]);
-                    function isSkipped(el) {
-                        let n = el.parentElement;
-                        while (n && n !== document.body) {
-                            if (SKIP.has(n.tagName)) return true;
-                            n = n.parentElement;
-                        }
-                        return false;
-                    }
-
-                    let best = "";
-                    let bestLen = 0;
-                    for (const el of document.querySelectorAll("div, section, article, main")) {
-                        if (isSkipped(el)) continue;
-                        try {
-                            const s = window.getComputedStyle(el);
-                            if (s.display === "none" || s.visibility === "hidden") continue;
-                        } catch { continue; }
-                        const t = (el.innerText || "").trim();
-                        if (t.length > 500 && t.length > bestLen) { bestLen = t.length; best = t; }
-                    }
-
-                    if (best) {
-                        const cleaned = cleanText(best);
-                        console.log("[ResumeNest] Extraction: largest_block |", cleaned.length, "chars");
-                        return { isJobPage: true, text: cleaned, reason: "largest_block" };
-                    }
-
-                    // Step 3: Body fallback
-                    const body = cleanText(document.body?.innerText || "");
-                    console.log("[ResumeNest] Extraction: body_fallback |", body.length, "chars");
-                    if (body.length < MIN_LENGTH) {
-                        return { isJobPage: false, text: "", reason: "not_enough_text" };
-                    }
-                    return { isJobPage: true, text: body.slice(0, 8000), reason: "body_fallback" };
+                    console.warn("[ResumeNest] No job description selector matched.");
+                    return { isJobPage: false, text: "", reason: "selector_not_found" };
                 },
             });
 
