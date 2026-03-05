@@ -122,9 +122,9 @@
             <span class="extract-text" id="extractText">Reading job description…</span>
         </div>
 
-        <!-- URL paste fallback (shown when scraping fails) -->
-        <div class="url-fallback" id="urlFallback" hidden>
-            <p class="url-fallback-label">Scraping failed? Paste the job URL:</p>
+        <!-- URL paste input — always visible as manual override -->
+        <div class="url-fallback" id="urlFallback">
+            <p class="url-fallback-label">Or paste a job URL to fetch description:</p>
             <div class="url-fallback-row">
                 <input type="url" class="url-input" id="urlInput" placeholder="https://careers.example.com/job/..." />
                 <button class="btn-fetch-url" id="btnFetchUrl">

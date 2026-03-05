@@ -147,26 +147,34 @@ function showScreen(name) {
 
 // ============================================================
 //  SPA NAVIGATION — re-scrape when user clicks a new job
-//  (content.js polls for URL changes and sends this message)
+//  (content.js watches currentJobId and sends this message)
 // ============================================================
+let lastScrapedJobId = null;
+
 chrome.runtime.onMessage.addListener((message) => {
     if (message.action !== "jobPageChanged") return;
 
     // Only act if we're on the main screen (resume already uploaded)
     if (screenMain.hidden) return;
 
-    console.log("[ResumeNest] SPA navigation detected, re-scraping:", message.url);
+    // Deduplicate — skip if we already scraped this exact job
+    if (message.jobId && message.jobId === lastScrapedJobId) return;
+    lastScrapedJobId = message.jobId ?? null;
+
+    console.log("[ResumeNest] New job detected, re-scraping:", message.jobId ?? message.url);
 
     // Reset stale state
     scrapedJobText = null;
     scoreCard.hidden = true;
-    urlFallback.hidden = true;
+    urlInput.value = "";
+    urlFetchStatus.textContent = "";
+    urlFetchStatus.className = "url-fallback-status";
     updateGenerateButtonState();
 
-    // Small delay so the SPA has started rendering the new job content
-    setTimeout(() => {
-        autoScrapeJobDescription();
-    }, 800);
+    showToast("New job detected — re-scanning…", 2000);
+
+    // content.js already waited 1500ms before sending — scrape immediately
+    autoScrapeJobDescription();
 });
 
 
@@ -368,7 +376,6 @@ async function autoScrapeJobDescription() {
                     "✓",
                     `Job description captured (${wordCount} words) — ready to tailor.`
                 );
-                urlFallback.hidden = true;
                 updateGenerateButtonState();
                 // Fire before-score (don't await — non-blocking)
                 chrome.storage.local.get(STORAGE_KEY_RESUME_TEXT).then(stored => {
@@ -395,7 +402,6 @@ async function autoScrapeJobDescription() {
                 "Couldn't extract enough text. Make sure you're on a job description page."
             );
             scrapedJobText = null;
-            urlFallback.hidden = false;
             updateGenerateButtonState();
             return;
 
@@ -408,7 +414,6 @@ async function autoScrapeJobDescription() {
             }
             setExtractStatus("error", "✕", `Could not read page: ${err.message}`);
             scrapedJobText = null;
-            urlFallback.hidden = false;
             updateGenerateButtonState();
             return;
         }
@@ -527,7 +532,6 @@ btnFetchUrl.addEventListener("click", async () => {
             "✓",
             `Job description fetched (${wordCount} words) — ready to tailor.`
         );
-        urlFallback.hidden = true;
         urlFetchStatus.textContent = "";
         updateGenerateButtonState();
 

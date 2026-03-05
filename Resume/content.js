@@ -1,10 +1,9 @@
 // ============================================================
 //  content.js – ResumeNest
 //
-//  Injected as a content script on job sites (LinkedIn, Indeed,
-//  Greenhouse, Lever) via manifest.json → overlay.js handles
-//  the floating button. This file handles only SPA navigation
-//  detection so the side panel can re-scrape automatically.
+//  Injected on all pages via manifest.json.
+//  Handles SPA navigation detection so the side panel re-scrapes
+//  when the user clicks a different job on LinkedIn or similar SPAs.
 //
 //  NOTE: Job description extraction is handled inline by
 //  sidepanel.js via chrome.scripting.executeScript({ func: ... }).
@@ -19,21 +18,33 @@ try {
   if (showMoreBtn) showMoreBtn.click();
 } catch { }
 
-// ── SPA Navigation Detection ─────────────────────────────────
-// Polls for URL changes on LinkedIn and other SPAs.
-// When it detects a navigation (e.g. user clicked a different job),
-// it sends a "jobPageChanged" message so the side panel re-scrapes.
+// ── SPA Navigation Detection (currentJobId-based) ─────────────
+// Watches for LinkedIn's currentJobId query param changing instead
+// of raw URL changes — avoids false positives from anchor/hash changes.
 if (!window.__resumeNest_spaWatcher) {
   window.__resumeNest_spaWatcher = true;
-  let lastUrl = location.href;
+  let lastJobId = null;
+
+  function getCurrentJobId() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("currentJobId");
+  }
 
   setInterval(() => {
-    if (location.href !== lastUrl) {
-      lastUrl = location.href;
-      console.log("[ResumeNest] SPA navigation detected:", lastUrl);
-      try {
-        chrome.runtime.sendMessage({ action: "jobPageChanged", url: lastUrl });
-      } catch { }
+    const jobId = getCurrentJobId();
+    if (jobId && jobId !== lastJobId) {
+      lastJobId = jobId;
+      console.log("[ResumeNest] New job detected:", jobId);
+      // Delay so LinkedIn has time to render the new job description
+      setTimeout(() => {
+        try {
+          chrome.runtime.sendMessage({
+            action: "jobPageChanged",
+            jobId: jobId,
+            url: location.href,
+          });
+        } catch { }
+      }, 1500);
     }
   }, 1000);
 }
