@@ -11,9 +11,9 @@
 //  and works on any site without selectors.
 // ============================================================
 
-const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"; // fast + cheap for extraction
-const MAX_TOKENS = 2048;
+const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const MAX_OUTPUT_TOKENS = 2048;
 
 export default async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*");

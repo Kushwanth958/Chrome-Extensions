@@ -19,8 +19,8 @@
 // ============================================================
 
 // ── Backend URL ───────────────────────────────────────────────
-const BACKEND_URL  = "https://chromeextensions.vercel.app/api/generate";
-const EXTRACT_URL  = BACKEND_URL.replace("/api/generate", "/api/extract");
+const BACKEND_URL = "https://chromeextensions.vercel.app/api/generate";
+const EXTRACT_URL = BACKEND_URL.replace("/api/generate", "/api/extract");
 
 // ── Storage keys ──────────────────────────────────────────────
 const STORAGE_KEY_RESUME_TEXT = "resumeText";
@@ -181,7 +181,7 @@ chrome.runtime.onMessage.addListener((message) => {
 
 //  AUTO-SCRAPE (with retry for dynamic pages like LinkedIn)
 // ============================================================
-const SCRAPE_MAX_RETRIES    = 3;
+const SCRAPE_MAX_RETRIES = 3;
 const SCRAPE_RETRY_DELAY_MS = 1200;
 
 // ── JD verification — pure JS, no API cost ───────────────────────────────
@@ -370,7 +370,7 @@ async function autoScrapeJobDescription() {
         chrome.storage.local.get(STORAGE_KEY_RESUME_TEXT).then(stored => {
             const resume = stored[STORAGE_KEY_RESUME_TEXT];
             if (resume) fetchAtsScore(resume, domText).then(d => renderScoreCard(d, "before"));
-        }).catch(() => {});
+        }).catch(() => { });
         return;
     }
 
@@ -425,7 +425,7 @@ async function autoScrapeJobDescription() {
         chrome.storage.local.get(STORAGE_KEY_RESUME_TEXT).then(stored => {
             const resume = stored[STORAGE_KEY_RESUME_TEXT];
             if (resume) fetchAtsScore(resume, scrapedJobText).then(d => renderScoreCard(d, "before"));
-        }).catch(() => {});
+        }).catch(() => { });
 
     } catch (err) {
         console.error("[ResumeNest] Claude fallback failed:", err.message);
