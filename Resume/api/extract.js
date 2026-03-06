@@ -3,12 +3,12 @@
 //
 //  Route: POST /api/extract
 //
-//  Accepts { rawText: string } — the full visible text of any page.
-//  Sends it to Claude and asks it to extract only the job description.
-//  Returns { jobDescription: string } or { error: string }.
+//  Accepts { rawText: string } — full visible text of any page.
+//  Uses Gemini 2.0 Flash (free tier) to extract the job description.
+//  Returns { jobDescription: string, isJobPage: bool }
 //
-//  This replaces all DOM heuristics — Claude understands context
-//  and works on any site without selectors.
+//  Environment variable required (Vercel dashboard):
+//    GEMINI_API_KEY  — from aistudio.google.com
 // ============================================================
 
 const GEMINI_MODEL = "gemini-2.0-flash";
@@ -31,67 +31,65 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Missing or too-short `rawText` field." });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-        return res.status(500).json({ error: "Server configuration error. API key not set." });
+        return res.status(500).json({ error: "Server configuration error. GEMINI_API_KEY not set." });
     }
 
-    // Trim raw text to avoid huge token bills — 12000 chars is plenty for any page
     const trimmedText = rawText.trim().slice(0, 12000);
 
-    const systemPrompt = `You are a precise data extraction assistant. Your only job is to extract job description content from raw webpage text.
+    const prompt = `You are a precise data extraction assistant. Extract ONLY the job description content from the webpage text below.
 
-Extract and return ONLY:
+Return ONLY these sections if present:
 - Job title
 - Location / work arrangement (remote, hybrid, onsite)
-- Job responsibilities / what you'll do
+- Responsibilities / what you'll do
 - Requirements / qualifications / must-have skills
 - Preferred / nice-to-have skills
-- Any compensation or benefits if listed
+- Compensation or benefits (if listed)
 
 Rules:
-- Return ONLY the extracted job description content, nothing else
-- Do NOT include: company "About Us" paragraphs, marketing copy, navigation text, cookie banners, footer text, "Get Job Alerts", social media links, or any boilerplate
-- Do NOT add any commentary, preamble, or explanation
-- If the page does not contain a job description, return exactly: NOT_A_JOB_PAGE
-- Preserve the original wording — do not paraphrase or summarize
-- Keep section headers if they exist (e.g. "Responsibilities:", "Requirements:")`;
+- Return ONLY the extracted job description, nothing else
+- Do NOT include: company "About Us" text, marketing copy, navigation, cookie banners, footer, "Get Job Alerts", or any boilerplate
+- Do NOT add commentary, preamble, or explanation
+- If the page has no job description, return exactly: NOT_A_JOB_PAGE
+- Preserve original wording — do not paraphrase
+- Keep section headers if they exist (e.g. "Responsibilities:", "Requirements:")
 
-    const userPrompt = `Extract the job description from this webpage text:\n\n${trimmedText}`;
+Webpage text:
+${trimmedText}`;
 
-    let claudeResponse;
+    let geminiResponse;
     try {
-        claudeResponse = await fetch(ANTHROPIC_API_URL, {
+        geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "x-api-key": apiKey,
-                "anthropic-version": "2023-06-01",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                model: ANTHROPIC_MODEL,
-                max_tokens: MAX_TOKENS,
-                system: systemPrompt,
-                messages: [{ role: "user", content: userPrompt }],
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    maxOutputTokens: MAX_OUTPUT_TOKENS,
+                    temperature: 0.1,
+                },
             }),
         });
     } catch (networkErr) {
-        console.error("[ResumeNest/extract] Network error:", networkErr);
-        return res.status(502).json({ error: "Could not reach the Anthropic API." });
+        console.error("[ResumeNest/extract] Network error calling Gemini:", networkErr);
+        return res.status(502).json({ error: "Could not reach the Gemini API." });
     }
 
-    if (!claudeResponse.ok) {
-        const errorBody = await claudeResponse.json().catch(() => ({}));
-        const detail = errorBody?.error?.message || `HTTP ${claudeResponse.status}`;
-        console.error("[ResumeNest/extract] Anthropic error:", detail);
-        return res.status(502).json({ error: `Anthropic API error: ${detail}` });
+    if (!geminiResponse.ok) {
+        const errorBody = await geminiResponse.json().catch(() => ({}));
+        const detail = errorBody?.error?.message || `HTTP ${geminiResponse.status}`;
+        console.error("[ResumeNest/extract] Gemini API error:", detail);
+        return res.status(502).json({ error: `Gemini API error: ${detail}` });
     }
 
-    const claudeData = await claudeResponse.json();
-    const extracted = claudeData?.content?.[0]?.text?.trim();
+    const geminiData = await geminiResponse.json();
+    const extracted = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
 
     if (!extracted) {
-        return res.status(502).json({ error: "Claude returned an empty response." });
+        console.error("[ResumeNest/extract] Gemini returned empty response:", geminiData);
+        return res.status(502).json({ error: "Gemini returned an empty response." });
     }
 
     if (extracted === "NOT_A_JOB_PAGE") {
